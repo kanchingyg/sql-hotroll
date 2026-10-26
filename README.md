@@ -1,6 +1,7 @@
 # sql-hotroll
 
 [![ci](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml/badge.svg)](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23675281.svg)](https://doi.org/10.5281/zenodo.23675281)
 [![JSR](https://jsr.io/badges/@kanchingyg/hotroll)](https://jsr.io/@kanchingyg/hotroll)
 [![JSR Score](https://jsr.io/badges/@kanchingyg/hotroll/score)](https://jsr.io/@kanchingyg/hotroll/score)
 [![Runtime](https://img.shields.io/badge/runtime-Workers_%7C_Bun_%7C_Deno-f9f1e1)](https://github.com/kanchingyg/sql-hotroll)
