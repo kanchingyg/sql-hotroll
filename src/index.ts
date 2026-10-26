@@ -1,3 +1,22 @@
+/**
+ * Session-quiescence-gated progressive SQL schema evolution with bijective inline
+ * complement lenses, zero-trust SLSA v1.0 DSSE hardware quorum, and DEC Mode 2026 TUI
+ * for Cloudflare D1, SQLite, and PostgreSQL 17.
+ *
+ * @example
+ * ```ts
+ * import {
+ *   HotRollEngine,
+ *   serializeCompositeToken,
+ *   parseCompositeToken,
+ * } from "@kanchingyg/hotroll";
+ *
+ * const token = serializeCompositeToken({ bookmark: "00000010", epoch: 2 });
+ * const engine = new HotRollEngine();
+ * ```
+ *
+ * @module
+ */
 export * from "./core.ts";
 export * from "./lenses.ts";
 export * from "./ast-rewriter.ts";
