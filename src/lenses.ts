@@ -1,3 +1,13 @@
+﻿/**
+ * Cambria-style bidirectional lenses with inline _lc complement for v1/v2 dual-table sync.
+ *
+ * @example
+ * `	s
+ * import * as mod from "@kanchingyg/hotroll/lenses";
+ * `
+ *
+ * @module
+ */
 /**
  * SQ-HotRoll Bidirectional Lens Algebra (Cambria-style Put-Get-Put)
  * with Inline Complement Column (_lc JSON) and Wave 2 Symbolic Fused Hub Lenses

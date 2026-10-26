@@ -1,3 +1,13 @@
+﻿/**
+ * SLSA DSSE envelopes, RFC 8785 JCS digests, and fleet hardware authenticator attestation.
+ *
+ * @example
+ * `	s
+ * import * as mod from "@kanchingyg/hotroll/attestation";
+ * `
+ *
+ * @module
+ */
 /**
  * @module attestation
  * @description Enterprise & FOSS Web-Infrastructure Cryptographic Provenance, Asymmetric Edge Verification,

@@ -1,3 +1,13 @@
+﻿/**
+ * HotRoll core: composite session tokens, cohort selection, quiescence, and DSSE quorum helpers.
+ *
+ * @example
+ * `	s
+ * import * as mod from "@kanchingyg/hotroll/core";
+ * `
+ *
+ * @module
+ */
 import {
   KeyObject,
   createHash,

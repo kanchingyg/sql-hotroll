@@ -1,3 +1,13 @@
+﻿/**
+ * Client quiescence detector: idle AFK swap, navigate HTTP 200, and visibility-hidden cutover.
+ *
+ * @example
+ * `	s
+ * import * as mod from "@kanchingyg/hotroll/client-quiescence";
+ * `
+ *
+ * @module
+ */
 /**
  * SQ-HotRoll Client-Side Quiescence SDK (`QuiescenceDetector`).
  * Implements:

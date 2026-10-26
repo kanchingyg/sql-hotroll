@@ -1,3 +1,13 @@
+﻿/**
+ * DEC Mode 2026 differential TUI, Braille sparklines, and CI-gate provenance panels.
+ *
+ * @example
+ * `	s
+ * import * as mod from "@kanchingyg/hotroll/tui";
+ * `
+ *
+ * @module
+ */
 /**
  * @module tui
  * @description Zero-dependency interactive ASCII/Unicode Terminal UI (`hotroll watch`, `hotroll apply`, `hotroll rollback`)

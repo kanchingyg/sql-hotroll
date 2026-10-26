@@ -1,3 +1,13 @@
+﻿/**
+ * Fleet hardware authenticators: YubiKey FIDO2, TPM2, Windows Hello, Touch ID, and PIV.
+ *
+ * @example
+ * `	s
+ * import * as mod from "@kanchingyg/hotroll/hardware-auth";
+ * `
+ *
+ * @module
+ */
 /**
  * @module hardware-auth
  * @description Enterprise Fleet Hardware Authenticator Auto-Detection, Policy Engine,

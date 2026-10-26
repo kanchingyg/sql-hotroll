@@ -1,3 +1,13 @@
+﻿/**
+ * Crypto handshake helpers for epoch tokens and edge verification.
+ *
+ * @example
+ * `	s
+ * import * as mod from "@kanchingyg/hotroll/crypto-handshake";
+ * `
+ *
+ * @module
+ */
 /**
  * @module crypto-handshake
  * @description Re-exports the Enterprise & FOSS Web-Infrastructure Cryptographic Provenance suite (`./attestation.ts`):
