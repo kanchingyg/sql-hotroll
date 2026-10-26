@@ -341,8 +341,21 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
     expect(hazard.severity).toBe("CRITICAL");
     expect(hazard.lockMode).toBe("AccessExclusiveLock");
 
+    const trgSql = generatePostgresBidirectionalTriggersSql({
+      tableV1: "test_hr_pg_v1",
+      tableV2: "test_hr_pg_v2",
+    });
     const pg = await connectLivePostgres();
-    if (!pg) return;
+    if (!pg) {
+      expect(trgSql).toContain("fn_hotroll_bump_row_ver");
+      expect(trgSql).toContain("BEFORE UPDATE ON test_hr_pg_v1");
+      expect(trgSql).toContain("BEFORE UPDATE ON test_hr_pg_v2");
+      expect(trgSql).toContain("pg_trigger_depth() > 1");
+      expect(trgSql).toContain("WHERE test_hr_pg_v2._row_ver < EXCLUDED._row_ver");
+      expect(trgSql).toContain("WHERE test_hr_pg_v1._row_ver < EXCLUDED._row_ver");
+      expect(trgSql).toContain("ON CONFLICT (id) DO UPDATE");
+      return;
+    }
     await pg.unsafe(`
       DROP TABLE IF EXISTS test_hr_pg_v1 CASCADE;
       DROP TABLE IF EXISTS test_hr_pg_v2 CASCADE;
@@ -368,10 +381,6 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
       );
     `);
 
-    const trgSql = generatePostgresBidirectionalTriggersSql({
-      tableV1: "test_hr_pg_v1",
-      tableV2: "test_hr_pg_v2",
-    });
     await pg.unsafe(trgSql);
 
     // Insert on v2 -> replicates to v1 with _lc preserving billing_meta
@@ -380,19 +389,29 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
       VALUES (101, 'Barbara', 'Liskov', 40, 8800, 'vip', '{"sla":"99.999%"}', 1, '{}');
     `);
 
-    // Update on v1 -> replicates back to v2 without losing billing_meta
+    // 1. AST-rewritten Update on v1 (explicit _row_ver + 1) -> replicates back to v2 without losing billing_meta
     await pg.unsafe(`
       UPDATE test_hr_pg_v1 SET stock_qty = stock_qty - 5, _row_ver = _row_ver + 1 WHERE id = 101;
+    `);
+
+    // 2. Raw unbumped Update on v1 (no explicit _row_ver increment) -> BEFORE UPDATE trigger bumps _row_ver to 3 and replicates to v2
+    await pg.unsafe(`
+      UPDATE test_hr_pg_v1 SET stock_qty = stock_qty - 3 WHERE id = 101;
     `);
 
     const rows = await pg.unsafe(
       `SELECT first_name, last_name, stock_qty, billing_meta, _row_ver FROM test_hr_pg_v2 WHERE id = 101;`
     );
+    const rowsV1 = await pg.unsafe(
+      `SELECT stock_qty, _row_ver FROM test_hr_pg_v1 WHERE id = 101;`
+    );
     expect(rows[0].first_name).toBe("Barbara");
     expect(rows[0].last_name).toBe("Liskov");
-    expect(Number(rows[0].stock_qty)).toBe(35);
+    expect(Number(rows[0].stock_qty)).toBe(32);
     expect(rows[0].billing_meta).toBe('{"sla":"99.999%"}');
-    expect(Number(rows[0]._row_ver)).toBe(2);
+    expect(Number(rows[0]._row_ver)).toBe(3);
+    expect(Number(rowsV1[0].stock_qty)).toBe(32);
+    expect(Number(rowsV1[0]._row_ver)).toBe(3);
 
     await pg.unsafe(
       `DROP TABLE IF EXISTS test_hr_pg_v1 CASCADE; DROP TABLE IF EXISTS test_hr_pg_v2 CASCADE;`
@@ -478,8 +497,16 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
   });
 
   test("Wave 2 Vector 6: Live PostgreSQL 17.11 Prepared Statement Plan-Cache Isolation (0A000 prevention)", async () => {
+    const sqlV1 = rewriteSqlForEpoch("SELECT * FROM test_0a000 WHERE id = $1", "test_0a000", 1);
+    const sqlV2 = rewriteSqlForEpoch("SELECT * FROM test_0a000 WHERE id = $1", "test_0a000", 2);
     const pg = await connectLivePostgres();
-    if (!pg) return;
+    if (!pg) {
+      expect(sqlV1).toBe("SELECT * FROM test_0a000_v1 AS test_0a000 WHERE id = $1");
+      expect(sqlV2).toBe("SELECT * FROM test_0a000_v2 AS test_0a000 WHERE id = $1");
+      expect(sqlV1).not.toBe(sqlV2);
+      expect(sqlV2).toContain("test_0a000_v2");
+      return;
+    }
     await pg.unsafe(`
       DROP VIEW IF EXISTS test_0a000_view CASCADE;
       DROP TABLE IF EXISTS test_0a000_v1 CASCADE;
@@ -509,8 +536,6 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
     expect(caught0A000).toBe(true);
 
     // By contrast, SQ-HotRoll's AST-scoped physical table routing binds distinct prepared statements per epoch with 0 errors
-    const sqlV1 = rewriteSqlForEpoch("SELECT * FROM test_0a000 WHERE id = $1", "test_0a000", 1);
-    const sqlV2 = rewriteSqlForEpoch("SELECT * FROM test_0a000 WHERE id = $1", "test_0a000", 2);
     await pg.unsafe(`PREPARE stmt_sq_v1 AS ${sqlV1}; PREPARE stmt_sq_v2 AS ${sqlV2};`);
     const sq1 = await pg.unsafe("EXECUTE stmt_sq_v1(1);");
     const sq2 = await pg.unsafe("EXECUTE stmt_sq_v2(1);");
@@ -1010,5 +1035,125 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
     for (const line of panelLines) {
       expect(visibleWidth(line)).toBe(84);
     }
+  });
+
+  test("Audit Regression Suite: Lossless Split/Merge Edge Cases ('Ada', 'Ada ', 'Jean Luc' / 'Picard') and Unified D1 AFTER INSERT + _row_ver Protocol", () => {
+    const lens12 = createSplitMergeLens({
+      fromEpoch: 1,
+      toEpoch: 2,
+      sourceCol: "full_name",
+      targetFirstCol: "first_name",
+      targetLastCol: "last_name",
+      addedDefaults: { billing_meta: "{}" },
+    });
+
+    // 1. Single-token name without delimiter ('Ada') round-trips v1 -> v2 -> v1 and v2 -> v1 -> v2
+    const v1Ada = { id: 1, full_name: "Ada", _row_ver: 1, _lc: "{}" };
+    const v2Ada = lens12.forward(v1Ada);
+    expect(v2Ada.first_name).toBe("Ada");
+    expect(v2Ada.last_name).toBe("");
+    const v1AdaRt = lens12.backward(v2Ada);
+    expect(v1AdaRt.full_name).toBe("Ada");
+    expect(lens12.forward(v1AdaRt)).toEqual(v2Ada);
+
+    // 2. Trailing delimiter ('Ada ') round-trips v1 -> v2 -> v1 without losing trailing space
+    const v1AdaTrailing = { id: 2, full_name: "Ada ", _row_ver: 1, _lc: "{}" };
+    const v2AdaTrailing = lens12.forward(v1AdaTrailing);
+    expect(v2AdaTrailing.first_name).toBe("Ada");
+    expect(v2AdaTrailing.last_name).toBe("");
+    const v1AdaTrailingRt = lens12.backward(v2AdaTrailing);
+    expect(v1AdaTrailingRt.full_name).toBe("Ada ");
+
+    // 3. Embedded space in first_name ('Jean Luc', 'Picard') round-trips v2 -> v1 -> v2 via _lc._split_parts
+    const v2Picard = {
+      id: 3,
+      first_name: "Jean Luc",
+      last_name: "Picard",
+      billing_meta: '{"ship":"Enterprise-D"}',
+      _row_ver: 2,
+      _lc: "{}",
+    };
+    const v1Picard = lens12.backward(v2Picard);
+    expect(v1Picard.full_name).toBe("Jean Luc Picard");
+    const v2PicardRt = lens12.forward(v1Picard);
+    expect(v2PicardRt).toEqual(v2Picard);
+
+    // 4. D1 AFTER INSERT triggers (raw v1 insert & raw v2 insert) + Unified _row_ver protocol (raw UPDATE & injectRowVerIncrement UPDATE)
+    const d1 = new D1StorageAdapter(":memory:");
+    d1.db.exec(`
+      CREATE TABLE orders_v1 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        full_name TEXT NOT NULL,
+        stock_qty INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        _row_ver INTEGER NOT NULL DEFAULT 1,
+        _lc TEXT NOT NULL DEFAULT '{}'
+      );
+      CREATE TABLE orders_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        stock_qty INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        billing_meta TEXT NOT NULL DEFAULT '{}',
+        _row_ver INTEGER NOT NULL DEFAULT 1,
+        _lc TEXT NOT NULL DEFAULT '{}'
+      );
+    `);
+    for (const trg of generateD1BidirectionalTriggersSql({
+      tableV1: "orders_v1",
+      tableV2: "orders_v2",
+    })) {
+      d1.db.exec(trg);
+    }
+
+    // Raw INSERT into orders_v1 (without insertDualAutoIncrementOrder) automatically propagates to orders_v2
+    d1.db.exec(
+      `INSERT INTO orders_v1 (id, full_name, stock_qty, amount_cents, role, _row_ver, _lc) VALUES (1, 'Ada Lovelace', 10, 5000, 'user', 1, '{"tier":"gold"}');`
+    );
+    const v2AfterRawIns = d1.db
+      .query("SELECT first_name, last_name, stock_qty, billing_meta, _row_ver FROM orders_v2 WHERE id = 1")
+      .get() as { first_name: string; last_name: string; stock_qty: number; billing_meta: string; _row_ver: number };
+    expect(v2AfterRawIns.first_name).toBe("Ada");
+    expect(v2AfterRawIns.last_name).toBe("Lovelace");
+    expect(v2AfterRawIns.stock_qty).toBe(10);
+    expect(v2AfterRawIns.billing_meta).toBe('{"tier":"gold"}');
+    expect(v2AfterRawIns._row_ver).toBe(1);
+
+    // AST-rewritten UPDATE (injectRowVerIncrement: true -> SET _row_ver = _row_ver + 1) propagates cleanly to v2 (no 6 vs 7 divergence!)
+    const rewrittenUpdV1 = rewriteSqlForEpoch(
+      "UPDATE orders SET stock_qty = stock_qty - 3 WHERE id = 1",
+      "orders",
+      1,
+      { injectRowVerIncrement: true }
+    );
+    d1.db.exec(rewrittenUpdV1);
+
+    const v1AfterRewritten = d1.db
+      .query("SELECT stock_qty, _row_ver FROM orders_v1 WHERE id = 1")
+      .get() as { stock_qty: number; _row_ver: number };
+    const v2AfterRewritten = d1.db
+      .query("SELECT stock_qty, _row_ver FROM orders_v2 WHERE id = 1")
+      .get() as { stock_qty: number; _row_ver: number };
+    expect(v1AfterRewritten.stock_qty).toBe(7);
+    expect(v2AfterRewritten.stock_qty).toBe(7);
+    expect(v1AfterRewritten._row_ver).toBe(2);
+    expect(v2AfterRewritten._row_ver).toBe(2);
+
+    // Raw UPDATE (without _row_ver increment) on v2 also increments _row_ver by +1 and propagates to v1
+    d1.db.exec("UPDATE orders_v2 SET stock_qty = stock_qty - 1 WHERE id = 1");
+    const v1AfterRawUpd = d1.db
+      .query("SELECT stock_qty, _row_ver FROM orders_v1 WHERE id = 1")
+      .get() as { stock_qty: number; _row_ver: number };
+    const v2AfterRawUpd = d1.db
+      .query("SELECT stock_qty, _row_ver FROM orders_v2 WHERE id = 1")
+      .get() as { stock_qty: number; _row_ver: number };
+    expect(v1AfterRawUpd.stock_qty).toBe(6);
+    expect(v2AfterRawUpd.stock_qty).toBe(6);
+    expect(v1AfterRawUpd._row_ver).toBe(3);
+    expect(v2AfterRawUpd._row_ver).toBe(3);
+    d1.db.close();
   });
 });

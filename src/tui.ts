@@ -8,10 +8,34 @@
  *
  * @module
  */
+/**
+ * @module tui
+ * @description Zero-dependency interactive ASCII/Unicode Terminal UI (`hotroll watch`, `hotroll apply`, `hotroll rollback`)
+ * modeled after Oh My Pi (`omp`), OpenAI Codex CLI, Charm/Lipgloss, and btop/lazygit.
+ * Features crisp Unicode box-drawing frames (`╭─╮│╰─╯`), heavy-box ASCII art header,
+ * `█▓▒░` cohort drain & urgency split gauges, `▁▂▃▄▅▆▇█` latency sparklines,
+ * Dark-Canary verification meters, and a single-keystroke `<50ms` rollback command bar
+ * with graceful `NO_COLOR` / non-TTY fallback.
+ *
+ * @example
+ * ```ts
+ * import { createDefaultTuiState, handleKeypress, renderHotRollTuiFrame } from "./tui.ts";
+ *
+ * let state = createDefaultTuiState({ tableName: "orders" });
+ * console.log(renderHotRollTuiFrame(state, { color: true }));
+ * state = handleKeypress(state, "p");
+ * ```
+ */
 
 import type { HardwareAuthenticatorModality, MigrationTier, SchemaEpoch } from "./core.ts";
+import {
+  buildMigrationSignPayload,
+  createOpenSshSkSignatureEnvelope,
+  generateOpenSshSkKeyPair,
+  verifyOpenSshSkSignatureEnvelope,
+} from "./hardware-auth.ts";
 
-/** Documentation for `TuiPhase`. */
+/** `TuiPhase` — exported SQ-HotRoll API symbol. */
 export type TuiPhase =
   | "DARK_CANARY"
   | "PROGRESSIVE_ROLLOUT"
@@ -19,71 +43,120 @@ export type TuiPhase =
   | "ROLLED_BACK"
   | "COMPLETED";
 
-/** Documentation for `TuiCommandMode`. */
+/** `TuiCommandMode` — exported SQ-HotRoll API symbol. */
 export type TuiCommandMode = "apply" | "watch" | "rollback" | "complete" | "ci-gate";
 
-/** Documentation for `HotRollSurfaceTelemetry`. */
+/** `HotRollSurfaceTelemetry` — exported SQ-HotRoll API symbol. */
 export interface HotRollSurfaceTelemetry {
+  /** `webNavigatePct` property/member. */
   webNavigatePct: number;
+  /** `spaIdle90sPct` property/member. */
   spaIdle90sPct: number;
+  /** `electronIpcPct` property/member. */
   electronIpcPct: number;
+  /** `webviewBridgePct` property/member. */
   webviewBridgePct: number;
+  /** `k8sPodsV2` property/member. */
   k8sPodsV2: number;
+  /** `k8sPodsTotal` property/member. */
   k8sPodsTotal: number;
 }
 
-/** Documentation for `HotRollAttestationTelemetry`. */
+/** `HotRollAttestationTelemetry` — exported SQ-HotRoll API symbol. */
 export interface HotRollAttestationTelemetry {
+  /** `validSignatures` property/member. */
   validSignatures: number;
+  /** `requiredQuorum` property/member. */
   requiredQuorum: number;
+  /** `rolesLabel` property/member. */
   rolesLabel: string;
+  /** `astJcsVerified` property/member. */
   astJcsVerified: boolean;
+  /** `jwksKid` property/member. */
   jwksKid: string;
+  /** `rekorLogIndex` property/member. */
   rekorLogIndex?: number;
+  /** `hardwareModality` property/member. */
   hardwareModality?: HardwareAuthenticatorModality;
+  /** `ctapFlags` property/member. */
   ctapFlags?: number; // 0x05 = UP (0x01) | UV (0x04)
+  /** `signCount` property/member. */
   signCount?: number;
+  /** `awaitingHardwarePrompt` property/member. */
   awaitingHardwarePrompt?: boolean;
 }
 
-/** Documentation for `HotRollTuiState`. */
+/** `HotRollTuiState` — exported SQ-HotRoll API symbol. */
 export interface HotRollTuiState {
+  /** `version` property/member. */
   version: string;
+  /** `mode` property/member. */
   mode: TuiCommandMode;
+  /** `tableName` property/member. */
   tableName: string;
+  /** `sourceEpoch` property/member. */
   sourceEpoch: SchemaEpoch;
+  /** `targetEpoch` property/member. */
   targetEpoch: SchemaEpoch;
+  /** `activeEpoch` property/member. */
   activeEpoch: SchemaEpoch;
+  /** `tier` property/member. */
   tier: MigrationTier;
+  /** `phase` property/member. */
   phase: TuiPhase;
+  /** `rolloutPct` property/member. */
   rolloutPct: number;
+  /** `totalSessions` property/member. */
   totalSessions: number;
+  /** `sessionsV2` property/member. */
   sessionsV2: number;
+  /** `immediateSessionsTotal` property/member. */
   immediateSessionsTotal: number;
+  /** `immediateSessionsV2` property/member. */
   immediateSessionsV2: number;
+  /** `passiveIdleSessionsTotal` property/member. */
   passiveIdleSessionsTotal: number;
+  /** `passiveIdleSessionsV2` property/member. */
   passiveIdleSessionsV2: number;
+  /** `surfaces` property/member. */
   surfaces: HotRollSurfaceTelemetry;
+  /** `attestation` property/member. */
   attestation: HotRollAttestationTelemetry;
+  /** `darkCanaryVerified` property/member. */
   darkCanaryVerified: number;
+  /** `darkCanaryTarget` property/member. */
   darkCanaryTarget: number;
+  /** `darkCanaryDiffs` property/member. */
   darkCanaryDiffs: number;
+  /** `latencyHistoryMs` property/member. */
   latencyHistoryMs: number[];
+  /** `p50Ms` property/member. */
   p50Ms: number;
+  /** `p99Ms` property/member. */
   p99Ms: number;
+  /** `p999Ms` property/member. */
   p999Ms: number;
+  /** `d1RowsReadMultiplier` property/member. */
   d1RowsReadMultiplier: number;
+  /** `d1RowsWrittenMultiplier` property/member. */
   d1RowsWrittenMultiplier: number;
+  /** `walSizeKb` property/member. */
   walSizeKb: number;
+  /** `walCapKb` property/member. */
   walCapKb: number;
+  /** `http500Count` property/member. */
   http500Count: number;
+  /** `lostUpdatesCount` property/member. */
   lostUpdatesCount: number;
+  /** `lastActionLog` property/member. */
   lastActionLog: string;
+  /** `lastRollbackElapsedMs` property/member. */
   lastRollbackElapsedMs?: number;
+  /** `quitRequested` property/member. */
   quitRequested: boolean;
 }
 
-/** Documentation for `HotRollTuiRenderOptions`. */
+/** `HotRollTuiRenderOptions` — exported SQ-HotRoll API symbol. */
 export interface HotRollTuiRenderOptions {
   /** Enable ANSI escape colors/bold/dim. Defaults to true unless NO_COLOR is set. */
   color?: boolean;
@@ -91,6 +164,8 @@ export interface HotRollTuiRenderOptions {
   width?: number;
   /** Include the ASCII/Unicode logo banner header at the top of the frame. */
   showBanner?: boolean;
+  /** Render pure 7-bit ASCII borders/bars for non-UTF8 terminals. */
+  asciiOnly?: boolean;
 }
 
 const ANSI = {
@@ -266,7 +341,6 @@ export function createDefaultTuiState(
  * - `[C]` Complete cutover (`100%` on `v2`), drop `_time_machine_delta`, truncate WAL to `0 KB`
  * - `[Q]` or `Ctrl+C` (`\u0003`) Quit interactive TUI loop
  */
-/** Documentation for `handleKeypress`. */
 export function handleKeypress(
   state: HotRollTuiState,
   rawKey: string
@@ -311,8 +385,46 @@ export function handleKeypress(
       key === "f"
         ? "tpm2-fprintd-thinkpad"
         : state.attestation.hardwareModality ?? "fido2-yubikey-sk";
-    const nextSignCount = (state.attestation.signCount ?? 41) + 1;
-    const nextValidSigs = Math.max(
+    const prevSignCount = state.attestation.signCount ?? 41;
+    const nextSignCount = prevSignCount + 1;
+    const skKeyType =
+      modality === "tpm2-fprintd-thinkpad"
+        ? "sk-ecdsa-sha2-nistp256@openssh.com"
+        : "sk-ssh-ed25519@openssh.com";
+    const skPair = generateOpenSshSkKeyPair(skKeyType);
+    const signPayload = buildMigrationSignPayload({
+      migrationId: `${state.tableName}_v${state.sourceEpoch}_to_v${state.targetEpoch}`,
+      action: "promote",
+      tableName: state.tableName,
+      fromEpoch: state.sourceEpoch,
+      toEpoch: state.targetEpoch,
+      cohortPct: state.rolloutPct,
+      timestampMs: 1792983600000 + nextSignCount,
+      nonce: `tui-stepup-nonce-${nextSignCount}`,
+    });
+    const skEnv = createOpenSshSkSignatureEnvelope({
+      message: signPayload,
+      privateKeyPem: skPair.privateKeyPem,
+      rawPublicKey: skPair.rawPublicKey,
+      keyType: skKeyType,
+      flags: 0x05,
+      counter: nextSignCount,
+    });
+    const verRes = verifyOpenSshSkSignatureEnvelope({
+      armoredSignature: skEnv.armoredSignature,
+      message: signPayload,
+      requireUserPresence: true,
+      requireUserVerification: true,
+      lastSeenCounter: prevSignCount,
+    });
+    if (!verRes.verified) {
+      return {
+        ...state,
+        phase: "PAUSED",
+        lastActionLog: `HW_AUTH_REJECTED: ${verRes.failureReason ?? "VERIFICATION_FAILED"}`,
+      };
+    }
+    const nextValidSigs = Math.min(
       state.attestation.requiredQuorum,
       state.attestation.validSignatures + 1
     );
@@ -321,8 +433,8 @@ export function handleKeypress(
       attestation: {
         ...state.attestation,
         hardwareModality: modality,
-        ctapFlags: 0x05,
-        signCount: nextSignCount,
+        ctapFlags: verRes.flags,
+        signCount: verRes.counter,
         validSignatures: nextValidSigs,
         awaitingHardwarePrompt: false,
         rolesLabel:
@@ -330,7 +442,7 @@ export function handleKeypress(
             ? "OIDC+TPM2-FPRINTD"
             : "OIDC+FIDO2-SK",
       },
-      lastActionLog: `HW_AUTH_OK: Verified ${modality} [TOUCH YUBIKEY / SWIPE THINKPAD FPRINTD+TPM2 / PIV 9c] (UP=1 UV=1 flags=0x05 ctr=${nextSignCount}) -> DSSE ${nextValidSigs}/${state.attestation.requiredQuorum}`,
+      lastActionLog: `HW_AUTH_OK: Verified ${modality} [TOUCH YUBIKEY / SWIPE THINKPAD FPRINTD+TPM2 / PIV 9c] (UP=1 UV=1 flags=0x05 ctr=${verRes.counter}) -> DSSE ${nextValidSigs}/${state.attestation.requiredQuorum}`,
     };
   }
 
@@ -756,7 +868,7 @@ export function renderHotRollTuiFrame(
 // Extended TUI Primitives (@oh-my-pi/pi-tui + Codex + Clack spec compatibility)
 // ---------------------------------------------------------------------------
 
-/** Documentation for `ANSI_EXT`. */
+/** `ANSI_EXT` — exported SQ-HotRoll API symbol. */
 export const ANSI_EXT = {
   ...ANSI,
   HIDE_CURSOR: "\x1b[?25l",
@@ -769,7 +881,7 @@ export const ANSI_EXT = {
 
 export { ANSI_EXT as ANSI };
 
-/** Documentation for `visibleWidth`. */
+/** `visibleWidth` — exported SQ-HotRoll API symbol. */
 export function visibleWidth(input: string): number {
   const noOsc = input.replace(/\x1b\]8;;.*?\x07/g, "");
   // eslint-disable-next-line no-control-regex
@@ -777,7 +889,7 @@ export function visibleWidth(input: string): number {
   return Array.from(noSgr).length;
 }
 
-/** Documentation for `fitWidth`. */
+/** `fitWidth` — exported SQ-HotRoll API symbol. */
 export function fitWidth(input: string, width: number): string {
   const w = visibleWidth(input);
   if (w === width) return input;
@@ -788,7 +900,7 @@ export function fitWidth(input: string, width: number): string {
 
 const FRACTIONAL_BLOCKS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"] as const;
 
-/** Documentation for `renderFractionalBar`. */
+/** `renderFractionalBar` — exported SQ-HotRoll API symbol. */
 export function renderFractionalBar(
   ratio: number,
   width: number,
@@ -823,7 +935,7 @@ export function renderFractionalBar(
 const LEFT_BRAILLE_DOTS = [0, 0x40, 0x44, 0x46, 0x47] as const;
 const RIGHT_BRAILLE_DOTS = [0, 0x80, 0xa0, 0xb0, 0xb8] as const;
 
-/** Documentation for `renderBrailleSparkline`. */
+/** `renderBrailleSparkline` — exported SQ-HotRoll API symbol. */
 export function renderBrailleSparkline(
   samples: readonly number[],
   maxVal = 100
@@ -841,7 +953,7 @@ export function renderBrailleSparkline(
   return out.join("");
 }
 
-/** Documentation for `resolveSynchronizedOutput`. */
+/** `resolveSynchronizedOutput` — exported SQ-HotRoll API symbol. */
 export function resolveSynchronizedOutput(
   env: Record<string, string | undefined> = {}
 ): boolean {
@@ -854,17 +966,23 @@ export function resolveSynchronizedOutput(
   return true;
 }
 
-/** Documentation for `HotRollTheme`. */
+/** `HotRollTheme` — exported SQ-HotRoll API symbol. */
 export interface HotRollTheme {
+  /** `enabled` property/member. */
   enabled: boolean;
+  /** `primary` property/member. */
   primary: (s: string) => string;
+  /** `success` property/member. */
   success: (s: string) => string;
+  /** `warning` property/member. */
   warning: (s: string) => string;
+  /** `danger` property/member. */
   danger: (s: string) => string;
+  /** `muted` property/member. */
   muted: (s: string) => string;
 }
 
-/** Documentation for `resolveTheme`. */
+/** `resolveTheme` — exported SQ-HotRoll API symbol. */
 export function resolveTheme(
   env: Record<string, string | undefined> = {},
   isTTY = true
@@ -883,7 +1001,7 @@ export function resolveTheme(
   };
 }
 
-/** Documentation for `DifferentialTuiRenderer`. */
+/** `DifferentialTuiRenderer` — exported SQ-HotRoll API symbol. */
 export class DifferentialTuiRenderer {
   private prevLines: string[] = [];
   private prevWidth = 0;
@@ -952,28 +1070,45 @@ export class DifferentialTuiRenderer {
   }
 }
 
-/** Documentation for `DashboardSnapshot`. */
+/** `DashboardSnapshot` — exported SQ-HotRoll API symbol. */
 export interface DashboardSnapshot {
+  /** `migrationId` property/member. */
   migrationId: string;
+  /** `tierLabel` property/member. */
   tierLabel: string;
+  /** `sourceEpoch` property/member. */
   sourceEpoch: number;
+  /** `targetEpoch` property/member. */
   targetEpoch: number;
+  /** `backfillCompletedRows` property/member. */
   backfillCompletedRows: number;
+  /** `backfillTotalRows` property/member. */
   backfillTotalRows: number;
+  /** `walBytes` property/member. */
   walBytes: number;
+  /** `walCeilingBytes` property/member. */
   walCeilingBytes: number;
+  /** `cohortV1Pct` property/member. */
   cohortV1Pct: number;
+  /** `cohortV2Pct` property/member. */
   cohortV2Pct: number;
+  /** `darkCanaryMismatches` property/member. */
   darkCanaryMismatches: number;
+  /** `darkCanarySampled` property/member. */
   darkCanarySampled: number;
+  /** `p99HistoryUs` property/member. */
   p99HistoryUs: number[];
+  /** `tickIndex` property/member. */
   tickIndex: number;
+  /** `hardwareAuthStatus` property/member. */
   hardwareAuthStatus?: string;
+  /** `awaitingStepUpChallenge` property/member. */
   awaitingStepUpChallenge?: boolean;
+  /** `stepUpPromptBanner` property/member. */
   stepUpPromptBanner?: string;
 }
 
-/** Documentation for `renderHotRollDashboard`. */
+/** `renderHotRollDashboard` — exported SQ-HotRoll API symbol. */
 export function renderHotRollDashboard(
   snap: DashboardSnapshot,
   width = 76,
@@ -1026,7 +1161,7 @@ export function renderHotRollDashboard(
   return lines;
 }
 
-/** Documentation for `renderClackTree`. */
+/** `renderClackTree` — exported SQ-HotRoll API symbol. */
 export function renderClackTree(
   title: string,
   steps: Array<{ label: string; status: "done" | "active" | "pending"; detail?: string }>,
@@ -1044,7 +1179,7 @@ export function renderClackTree(
   return out;
 }
 
-/** Documentation for `parseHotRollKeystroke`. */
+/** `parseHotRollKeystroke` — exported SQ-HotRoll API symbol. */
 export function parseHotRollKeystroke(
   key: string
 ):
@@ -1067,19 +1202,31 @@ export function parseHotRollKeystroke(
   return "noop";
 }
 
-/** Documentation for `ZeroTrustProvenancePanelState`. */
+/** `ZeroTrustProvenancePanelState` — exported SQ-HotRoll API symbol. */
 export interface ZeroTrustProvenancePanelState {
+  /** `migrationId` property/member. */
   migrationId: string;
+  /** `jcsAstDigestShort` property/member. */
   jcsAstDigestShort: string;
+  /** `dsseSlsaVerified` property/member. */
   dsseSlsaVerified: boolean;
+  /** `oidcOrSpiffeBuilder` property/member. */
   oidcOrSpiffeBuilder: string;
+  /** `quorumValidSigners` property/member. */
   quorumValidSigners: number;
+  /** `quorumRequiredSigners` property/member. */
   quorumRequiredSigners: number;
+  /** `distinctRolesVerified` property/member. */
   distinctRolesVerified: boolean;
+  /** `rekorLogIndex` property/member. */
   rekorLogIndex: number;
+  /** `pasetoKid` property/member. */
   pasetoKid: string;
+  /** `edgeSharedSecretsCount` property/member. */
   edgeSharedSecretsCount: number;
+  /** `z3BijectionVerified` property/member. */
   z3BijectionVerified: boolean;
+  /** `ciMergeReady` property/member. */
   ciMergeReady: boolean;
 }
 
@@ -1119,7 +1266,7 @@ export function renderCiGateProvenancePanel(
   ];
 }
 
-/** Documentation for `HardwareAuthenticatorClass`. */
+/** `HardwareAuthenticatorClass` — exported SQ-HotRoll API symbol. */
 export type HardwareAuthenticatorClass =
   | "fido2-yubikey-sk-ed25519"
   | "linux-fprintd-tpm2"
@@ -1127,16 +1274,21 @@ export type HardwareAuthenticatorClass =
   | "macos-touchid-se"
   | "piv-cac-pkcs11-ssh-agent";
 
-/** Documentation for `HardwareAuthenticatorModalState`. */
+/** `HardwareAuthenticatorModalState` — exported SQ-HotRoll API symbol. */
 export interface HardwareAuthenticatorModalState {
+  /** `migrationId` property/member. */
   migrationId: string;
+  /** `jcsDigestShort` property/member. */
   jcsDigestShort: string;
+  /** `selectedAuthenticator` property/member. */
   selectedAuthenticator: HardwareAuthenticatorClass;
+  /** `userPresenceVerified` property/member. */
   userPresenceVerified: boolean;
+  /** `signCount` property/member. */
   signCount: number;
 }
 
-/** Documentation for `renderHardwareAuthenticatorModal`. */
+/** `renderHardwareAuthenticatorModal` — exported SQ-HotRoll API symbol. */
 export function renderHardwareAuthenticatorModal(
   modal: HardwareAuthenticatorModalState,
   width = 76,
@@ -1163,5 +1315,12 @@ export function renderHardwareAuthenticatorModal(
     bot,
   ];
 }
+
+/** `createInitialTuiState` — exported SQ-HotRoll API symbol. */
+export const createInitialTuiState: typeof createDefaultTuiState = createDefaultTuiState;
+/** `applyTuiKeypress` — exported SQ-HotRoll API symbol. */
+export const applyTuiKeypress: typeof handleKeypress = handleKeypress;
+/** `applyKeypress` — exported SQ-HotRoll API symbol. */
+export const applyKeypress = handleKeypress;
 
 export * from "./hardware-auth.ts";

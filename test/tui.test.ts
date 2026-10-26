@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   ANSI,
   DifferentialTuiRenderer,
+  applyTuiKeypress,
   createDefaultTuiState,
+  createInitialTuiState,
   fitWidth,
   handleKeypress,
   parseHotRollKeystroke,
@@ -460,5 +462,98 @@ describe("SQ-HotRoll ASCII/Unicode TUI Engine (@oh-my-pi/pi-tui + Codex + Clack 
     for (const line of dashWithStepUp) {
       expect(visibleWidth(line)).toBe(76);
     }
+  });
+
+  test("Audit Regression: Rejects software ssh-ed25519 public key paired with forged sk-ssh-ed25519@openssh.com 0x05 trailer, caps TUI quorum at 2/2, and checks win32 paths", () => {
+    const { createHash, createPrivateKey, generateKeyPairSync, sign: cryptoSign } = require("node:crypto");
+    const writeSshStr = (d: Buffer | string) => {
+      const b = typeof d === "string" ? Buffer.from(d, "utf8") : d;
+      const l = Buffer.alloc(4);
+      l.writeUInt32BE(b.byteLength, 0);
+      return Buffer.concat([l, b]);
+    };
+
+    // Reproduce exact PoC: software ssh-ed25519 public key + signature blob claiming sk-ssh-ed25519@openssh.com with 0x05 trailer
+    const kp = generateKeyPairSync("ed25519");
+    const spki = kp.publicKey.export({ type: "spki", format: "der" }) as Buffer;
+    const rawPub32 = Buffer.from(spki.subarray(spki.byteLength - 32));
+    const pubKeyBlob = Buffer.concat([
+      writeSshStr("ssh-ed25519"),
+      writeSshStr(rawPub32),
+    ]);
+
+    const message = "sql-hotroll@v1|action=promote|migration=m1";
+    const namespace = "sql-hotroll@v1";
+    const msgHash = createHash("sha512").update(Buffer.from(message, "utf8")).digest();
+    const sshsigSignedData = Buffer.concat([
+      Buffer.from("SSHSIG", "ascii"),
+      writeSshStr(namespace),
+      writeSshStr(""),
+      writeSshStr("sha512"),
+      writeSshStr(msgHash),
+    ]);
+    const rawSig64 = cryptoSign(null, sshsigSignedData, kp.privateKey);
+    const forgedTrailer = Buffer.from([0x05, 0x00, 0x00, 0x00, 0x2a]);
+    const forgedSigBlob = Buffer.concat([
+      writeSshStr("sk-ssh-ed25519@openssh.com"),
+      writeSshStr(rawSig64),
+      forgedTrailer,
+    ]);
+    const outerBlob = Buffer.concat([
+      Buffer.from("SSHSIG", "ascii"),
+      Buffer.from([0x00, 0x00, 0x00, 0x01]),
+      writeSshStr(pubKeyBlob),
+      writeSshStr(namespace),
+      writeSshStr(""),
+      writeSshStr("sha512"),
+      writeSshStr(forgedSigBlob),
+    ]);
+    const forgedArmored = [
+      "-----BEGIN SSH SIGNATURE-----",
+      outerBlob.toString("base64"),
+      "-----END SSH SIGNATURE-----",
+    ].join("\n");
+
+    const pocResult = verifyOpenSshSkSignatureEnvelope({
+      armoredSignature: forgedArmored,
+      message,
+      expectedNamespace: namespace,
+      requireUserPresence: true,
+      requireUserVerification: true,
+      lastSeenCounter: 10,
+    });
+    expect(pocResult.verified).toBe(false);
+    expect(pocResult.userPresence).toBe(false);
+    expect(pocResult.userVerification).toBe(false);
+    expect(pocResult.failureReason).toBe("KEY_TYPE_MISMATCH_OR_NON_SK_KEY");
+
+    // Verify createInitialTuiState & applyTuiKeypress aliases + pressing [M] keeps quorum at 2/2 (not 3/2)
+    const init = createInitialTuiState();
+    const afterM = applyTuiKeypress(init, "M");
+    expect(afterM.attestation.validSignatures).toBe(2);
+    expect(afterM.attestation.requiredQuorum).toBe(2);
+    const renderedAfterM = stripAnsi(
+      renderHotRollTuiFrame(afterM, { color: false, asciiOnly: true, width: 112 })
+    );
+    expect(renderedAfterM).toContain("2/2 Ed25519");
+    expect(renderedAfterM).not.toContain("3/2");
+
+    // Verify win32 detectFleetAuthenticators requires webauthn.dll / WinBioDatabase rather than unconditional true
+    const winNoPaths = detectFleetAuthenticators({
+      platform: "win32",
+      env: {},
+      probePaths: [],
+    });
+    expect(winNoPaths.find((f) => f.method === "windows-hello")?.available).toBe(false);
+    const winWithWebauthn = detectFleetAuthenticators({
+      platform: "win32",
+      env: {},
+      probePaths: [
+        "C:\\Windows\\System32\\webauthn.dll",
+        "C:\\Windows\\System32\\OpenSSH\\ssh-sk-helper.exe",
+      ],
+    });
+    expect(winWithWebauthn.find((f) => f.method === "windows-hello")?.available).toBe(true);
+    expect(winWithWebauthn.find((f) => f.method === "fido2-sk")?.available).toBe(true);
   });
 });

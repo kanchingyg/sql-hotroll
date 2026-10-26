@@ -8,6 +8,27 @@
  *
  * @module
  */
+/**
+ * @module hardware-auth
+ * @description Enterprise Fleet Hardware Authenticator Auto-Detection, Policy Engine,
+ * and OpenSSH `PROTOCOL.sshsig` + `PROTOCOL.u2f` (`sk-ssh-ed25519@openssh.com` &
+ * `sk-ecdsa-sha2-nistp256@openssh.com`) Binary Envelope Verifier for `sql-hotroll`.
+ *
+ * Covers the 6 enterprise fleet hardware authentication methods:
+ *  1. `'fido2-sk'`: OpenSSH 8.2+ FIDO2/CTAP2 Security Keys (`sk-ssh-ed25519@openssh.com`,
+ *     `sk-ecdsa-sha2-nistp256@openssh.com`) via `ssh-sk-helper` / `libfido2` & `SSH_AUTH_SOCK`.
+ *  2. `'thinkpad-fprintd'`: ThinkPad / Enterprise Linux Match-on-Chip Fingerprint Sensors
+ *     (Synaptics / Goodix / Elan) via D-Bus `net.reactivated.Fprint` (`/net/reactivated/Fprint/Device/0`)
+ *     paired with TPM 2.0 (`/dev/tpmrm0`) or `SSHSIG` cryptographic co-signing.
+ *  3. `'tpm2-pkcs11'`: Enterprise Linux & Windows Discrete TPM 2.0 (Nuvoton / STMicro / Infineon)
+ *     via `/dev/tpmrm0` and `libtpm2_pkcs11.so` (`ssh-keygen -D libtpm2_pkcs11.so.1`).
+ *  4. `'windows-hello'`: Windows 11 Enterprise `Windows Hello for Business` (`webauthn.dll`
+ *     `WebAuthNAuthenticatorGetAssertion` + `Microsoft Passport Key Storage Provider` + `ssh-sk-helper.exe`).
+ *  5. `'macos-touchid'`: macOS Apple Silicon / T2 Secure Enclave (`kSecAttrTokenIDSecureEnclave` P-256
+ *     + `LAContext.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics)` + `Secretive` `SSH_AUTH_SOCK`).
+ *  6. `'piv-pkcs11'`: Enterprise Smartcards & NIST SP 800-73-4 PIV / DoD CAC / YubiKey PIV
+ *     Slot `9a` (PIV Auth) & Slot `9c` (Digital Signature, PIN/touch per sign) via `libykcs11.so` / `opensc-pkcs11.so`.
+ */
 
 import {
   KeyObject,
@@ -23,23 +44,23 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** Documentation for `SSHSIG_MAGIC_PREAMBLE`. */
+/** `SSHSIG_MAGIC_PREAMBLE` — exported SQ-HotRoll API symbol. */
 export const SSHSIG_MAGIC_PREAMBLE = "SSHSIG";
-/** Documentation for `SSHSIG_VERSION`. */
+/** `SSHSIG_VERSION` — exported SQ-HotRoll API symbol. */
 export const SSHSIG_VERSION = 0x01;
-/** Documentation for `DEFAULT_HOTROLL_NAMESPACE`. */
+/** `DEFAULT_HOTROLL_NAMESPACE` — exported SQ-HotRoll API symbol. */
 export const DEFAULT_HOTROLL_NAMESPACE = "sql-hotroll@v1";
-/** Documentation for `DEFAULT_SK_APPLICATION`. */
+/** `DEFAULT_SK_APPLICATION` — exported SQ-HotRoll API symbol. */
 export const DEFAULT_SK_APPLICATION = "ssh:sql-hotroll";
 
 /** OpenSSH `PROTOCOL.u2f` / `sk-api.h` bitmasks */
 export const SSH_SK_USER_PRESENCE_REQD = 0x01;
-/** Documentation for `SSH_SK_USER_VERIFICATION_REQD`. */
+/** `SSH_SK_USER_VERIFICATION_REQD` — exported SQ-HotRoll API symbol. */
 export const SSH_SK_USER_VERIFICATION_REQD = 0x04;
-/** Documentation for `SSH_SK_RESIDENT_KEY`. */
+/** `SSH_SK_RESIDENT_KEY` — exported SQ-HotRoll API symbol. */
 export const SSH_SK_RESIDENT_KEY = 0x20;
 
-/** Documentation for `HardwareAuthMethod`. */
+/** `HardwareAuthMethod` — exported SQ-HotRoll API symbol. */
 export type HardwareAuthMethod =
   | "fido2-sk"
   | "thinkpad-fprintd"
@@ -48,16 +69,16 @@ export type HardwareAuthMethod =
   | "macos-touchid"
   | "piv-pkcs11";
 
-/** Documentation for `OpenSshSkKeyType`. */
+/** `OpenSshSkKeyType` — exported SQ-HotRoll API symbol. */
 export type OpenSshSkKeyType =
   | "sk-ssh-ed25519@openssh.com"
   | "sk-ecdsa-sha2-nistp256@openssh.com"
   | "ssh-ed25519";
 
-/** Documentation for `RollbackAuthPolicy`. */
+/** `RollbackAuthPolicy` — exported SQ-HotRoll API symbol. */
 export type RollbackAuthPolicy = "instant" | "step-up";
 
-/** Documentation for `FprintdVerifyStatusResult`. */
+/** `FprintdVerifyStatusResult` — exported SQ-HotRoll API symbol. */
 export type FprintdVerifyStatusResult =
   | "verify-match"
   | "verify-no-match"
@@ -69,89 +90,151 @@ export type FprintdVerifyStatusResult =
   | "verify-disconnected"
   | "verify-unknown-error";
 
-/** Documentation for `FleetAuthenticatorDescriptor`. */
+/** `FleetAuthenticatorDescriptor` — exported SQ-HotRoll API symbol. */
 export interface FleetAuthenticatorDescriptor {
+  /** `method` property/member. */
   method: HardwareAuthMethod;
+  /** `available` property/member. */
   available: boolean;
+  /** `displayName` property/member. */
   displayName: string;
+  /** `hardwareBacking` property/member. */
   hardwareBacking: string;
+  /** `officialSpec` property/member. */
   officialSpec: string;
+  /** `sshKeyType` property/member. */
   sshKeyType: OpenSshSkKeyType | "ecdsa-sha2-nistp256" | "ssh-rsa-cert-v01@openssh.com";
+  /** `supportsUserPresence` property/member. */
   supportsUserPresence: boolean;
+  /** `supportsUserVerification` property/member. */
   supportsUserVerification: boolean;
+  /** `supportsSshAgentForwarding` property/member. */
   supportsSshAgentForwarding: boolean;
+  /** `supportsAirGappedOffline` property/member. */
   supportsAirGappedOffline: boolean;
+  /** `detectedVia` property/member. */
   detectedVia: string;
 }
 
-/** Documentation for `MigrationSignPayloadSpec`. */
+/** `MigrationSignPayloadSpec` — exported SQ-HotRoll API symbol. */
 export interface MigrationSignPayloadSpec {
+  /** `migrationId` property/member. */
   migrationId: string;
+  /** `action` property/member. */
   action: "promote" | "cutover" | "rollback";
+  /** `tableName` property/member. */
   tableName: string;
+  /** `fromEpoch` property/member. */
   fromEpoch: number;
+  /** `toEpoch` property/member. */
   toEpoch: number;
+  /** `cohortPct` property/member. */
   cohortPct: number;
+  /** `timestampMs` property/member. */
   timestampMs: number;
+  /** `nonce` property/member. */
   nonce: string;
+  /** `namespace` property/member. */
   namespace?: string;
 }
 
-/** Documentation for `HardwareAuthAttestation`. */
+/** `HardwareAuthAttestation` — exported SQ-HotRoll API symbol. */
 export interface HardwareAuthAttestation {
+  /** `method` property/member. */
   method: HardwareAuthMethod;
+  /** `keyType` property/member. */
   keyType: OpenSshSkKeyType;
+  /** `application` property/member. */
   application: string;
+  /** `namespace` property/member. */
   namespace: string;
+  /** `hashAlgorithm` property/member. */
   hashAlgorithm: "sha512" | "sha256";
+  /** `flags` property/member. */
   flags: number;
+  /** `userPresence` property/member. */
   userPresence: boolean;
+  /** `userVerification` property/member. */
   userVerification: boolean;
+  /** `counter` property/member. */
   counter: number;
+  /** `armoredSignature` property/member. */
   armoredSignature: string;
+  /** `publicKeyBlobBase64` property/member. */
   publicKeyBlobBase64: string;
+  /** `principal` property/member. */
   principal: string;
+  /** `fprintdResult` property/member. */
   fprintdResult?: FprintdVerifyStatusResult;
+  /** `tpmDevicePath` property/member. */
   tpmDevicePath?: string;
+  /** `pivSlot` property/member. */
   pivSlot?: "9a" | "9c";
+  /** `viaSshAgentForwarding` property/member. */
   viaSshAgentForwarding?: boolean;
 }
 
-/** Documentation for `ParsedOpenSshSigEnvelope`. */
+/** `ParsedOpenSshSigEnvelope` — exported SQ-HotRoll API symbol. */
 export interface ParsedOpenSshSigEnvelope {
+  /** `magicPreamble` property/member. */
   magicPreamble: string;
+  /** `version` property/member. */
   version: number;
+  /** `keyType` property/member. */
   keyType: OpenSshSkKeyType;
+  /** `publicKeyBlob` property/member. */
   publicKeyBlob: Buffer;
+  /** `rawPublicKey` property/member. */
   rawPublicKey: Buffer;
+  /** `ecdsaCurveName` property/member. */
   ecdsaCurveName?: string;
+  /** `application` property/member. */
   application: string;
+  /** `namespace` property/member. */
   namespace: string;
+  /** `reserved` property/member. */
   reserved: string;
+  /** `hashAlgorithm` property/member. */
   hashAlgorithm: "sha512" | "sha256";
+  /** `signatureKeyType` property/member. */
   signatureKeyType: string;
+  /** `rawSignature` property/member. */
   rawSignature: Buffer;
+  /** `flags` property/member. */
   flags: number;
+  /** `userPresence` property/member. */
   userPresence: boolean;
+  /** `userVerification` property/member. */
   userVerification: boolean;
+  /** `counter` property/member. */
   counter: number;
 }
 
-/** Documentation for `VerifyOpenSshSkResult`. */
+/** `VerifyOpenSshSkResult` — exported SQ-HotRoll API symbol. */
 export interface VerifyOpenSshSkResult {
+  /** `verified` property/member. */
   verified: boolean;
+  /** `keyType` property/member. */
   keyType?: OpenSshSkKeyType;
+  /** `application` property/member. */
   application?: string;
+  /** `namespace` property/member. */
   namespace?: string;
+  /** `flags` property/member. */
   flags: number;
+  /** `userPresence` property/member. */
   userPresence: boolean;
+  /** `userVerification` property/member. */
   userVerification: boolean;
+  /** `counter` property/member. */
   counter: number;
+  /** `failureReason` property/member. */
   failureReason?:
     | "MALFORMED_SSHSIG_ARMOR"
     | "INVALID_SSHSIG_PREAMBLE_OR_VERSION"
     | "EMPTY_OR_MISMATCHED_NAMESPACE"
     | "UNSUPPORTED_HASH_OR_KEY_TYPE"
+    | "KEY_TYPE_MISMATCH_OR_NON_SK_KEY"
     | "USER_PRESENCE_FLAG_MISSING"
     | "USER_VERIFICATION_FLAG_MISSING"
     | "SIGNATURE_COUNTER_REGRESSION_OR_CLONE"
@@ -245,6 +328,7 @@ export function detectFleetAuthenticators(options?: {
   env?: Record<string, string | undefined>;
   platform?: NodeJS.Platform | "linux" | "darwin" | "win32";
   probeOverrides?: Partial<Record<string, boolean>>;
+  probePaths?: readonly string[];
 }): FleetAuthenticatorDescriptor[] {
   const env = options?.env ?? (typeof process !== "undefined" ? process.env : {});
   const platform =
@@ -253,6 +337,9 @@ export function detectFleetAuthenticators(options?: {
   const checkPath = (p: string): boolean => {
     if (options?.probeOverrides && p in options.probeOverrides) {
       return Boolean(options.probeOverrides[p]);
+    }
+    if (options?.probePaths !== undefined) {
+      return options.probePaths.includes(p);
     }
     try {
       return existsSync(p);
@@ -283,13 +370,16 @@ export function detectFleetAuthenticators(options?: {
     Boolean(env.HOTROLL_ASSUME_TPM2 === "1");
 
   const hasWindowsHello =
-    platform === "win32" ||
+    (platform === "win32" &&
+      (checkPath("C:\\Windows\\System32\\WinBioDatabase") ||
+        checkPath("C:\\Windows\\System32\\WinBioPlugIns") ||
+        checkPath("C:\\Windows\\System32\\webauthn.dll"))) ||
     checkPath("C:\\Windows\\System32\\webauthn.dll") ||
     Boolean(env.SSH_SK_PROVIDER?.toLowerCase().includes("winhello")) ||
     Boolean(env.HOTROLL_ASSUME_WINDOWS_HELLO === "1");
 
   const hasMacOsTouchId =
-    platform === "darwin" ||
+    (platform === "darwin" && checkPath("/usr/lib/pam/pam_tid.so.2")) ||
     checkPath("/usr/lib/pam/pam_tid.so.2") ||
     Boolean(env.SSH_AUTH_SOCK?.includes("com.maxgoedjen.Secretive")) ||
     Boolean(env.HOTROLL_ASSUME_MACOS_TOUCHID === "1");
@@ -669,17 +759,18 @@ export function parseOpenSshSignatureEnvelope(
 
   let flags = 0x00;
   let counter = 0;
-  if (
-    signatureKeyType === "sk-ssh-ed25519@openssh.com" ||
-    signatureKeyType === "sk-ecdsa-sha2-nistp256@openssh.com"
-  ) {
+  const isConsistentSkKey =
+    signatureKeyType === keyType &&
+    (keyType === "sk-ssh-ed25519@openssh.com" ||
+      keyType === "sk-ecdsa-sha2-nistp256@openssh.com");
+  if (isConsistentSkKey) {
     if (sigOffset + 5 > sigBlob.byteLength) {
       throw new Error("Truncated PROTOCOL.u2f sk-* flags/counter trailer");
     }
     flags = sigBlob.readUInt8(sigOffset);
     counter = sigBlob.readUInt32BE(sigOffset + 1);
   } else {
-    // Non-sk ssh-ed25519 keys do not carry hardware CTAP2 flags or counter
+    // Software ssh-ed25519 or mismatched signatureKeyType !== keyType never carry valid hardware CTAP2 flags/counter
     flags = 0x00;
     counter = 0;
   }
@@ -771,6 +862,23 @@ export function verifyOpenSshSkSignatureEnvelope(params: {
       userVerification: false,
       counter: 0,
       failureReason: reason,
+    };
+  }
+
+  const isHardwareSkKey =
+    parsed.keyType === "sk-ssh-ed25519@openssh.com" ||
+    parsed.keyType === "sk-ecdsa-sha2-nistp256@openssh.com";
+  if (parsed.signatureKeyType !== parsed.keyType || !isHardwareSkKey) {
+    return {
+      verified: false,
+      keyType: parsed.keyType,
+      application: parsed.application,
+      namespace: parsed.namespace,
+      flags: 0,
+      userPresence: false,
+      userVerification: false,
+      counter: 0,
+      failureReason: "KEY_TYPE_MISMATCH_OR_NON_SK_KEY",
     };
   }
 

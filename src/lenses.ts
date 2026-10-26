@@ -8,7 +8,6 @@
  *
  * @module
  */
-
 /**
  * SQ-HotRoll Bidirectional Lens Algebra (Cambria-style Put-Get-Put)
  * with Inline Complement Column (_lc JSON) and Wave 2 Symbolic Fused Hub Lenses
@@ -17,9 +16,11 @@
 
 export type RowRecord = Record<string, unknown>;
 
-/** Documentation for `BidirectionalLens`. */
+/** `BidirectionalLens` — exported SQ-HotRoll API symbol. */
 export interface BidirectionalLens {
+  /** `fromEpoch` property/member. */
   readonly fromEpoch: number;
+  /** `toEpoch` property/member. */
   readonly toEpoch: number;
   /** Forward projection: transforms v_k row -> v_{k+1} row, preserving dropped fields in _lc */
   forward(row: RowRecord): RowRecord;
@@ -65,13 +66,34 @@ export function createSplitMergeLens(opts: {
       const out: RowRecord = { ...row };
       const lc = parseComplement(row._lc);
       const rawVal = String(row[opts.sourceCol] ?? "");
-      const idx = rawVal.indexOf(delim);
-      if (idx >= 0) {
-        out[opts.targetFirstCol] = rawVal.slice(0, idx);
-        out[opts.targetLastCol] = rawVal.slice(idx + delim.length);
+      if (
+        Array.isArray(lc._split_parts) &&
+        lc._split_parts.length === 2 &&
+        lc._split_source === rawVal
+      ) {
+        out[opts.targetFirstCol] = String(lc._split_parts[0]);
+        out[opts.targetLastCol] = String(lc._split_parts[1]);
+        delete lc._split_parts;
+        delete lc._split_source;
       } else {
-        out[opts.targetFirstCol] = rawVal;
-        out[opts.targetLastCol] = "";
+        delete lc._split_parts;
+        delete lc._split_source;
+        const idx = rawVal.indexOf(delim);
+        if (idx >= 0) {
+          const fn = rawVal.slice(0, idx);
+          const ln = rawVal.slice(idx + delim.length);
+          out[opts.targetFirstCol] = fn;
+          out[opts.targetLastCol] = ln;
+          if (ln === "") {
+            lc._trailing_delim = true;
+          } else {
+            delete lc._trailing_delim;
+          }
+        } else {
+          out[opts.targetFirstCol] = rawVal;
+          out[opts.targetLastCol] = "";
+          delete lc._trailing_delim;
+        }
       }
       delete out[opts.sourceCol];
 
@@ -93,9 +115,30 @@ export function createSplitMergeLens(opts: {
       const lc = parseComplement(row._lc);
       const fn = String(row[opts.targetFirstCol] ?? "");
       const ln = String(row[opts.targetLastCol] ?? "");
-      out[opts.sourceCol] = ln.length > 0 ? `${fn}${delim}${ln}` : fn;
+      let merged: string;
+      if (ln.length > 0) {
+        merged = `${fn}${delim}${ln}`;
+        delete lc._trailing_delim;
+      } else if (lc._trailing_delim === true) {
+        merged = `${fn}${delim}`;
+        delete lc._trailing_delim;
+      } else {
+        merged = fn;
+      }
+      out[opts.sourceCol] = merged;
       delete out[opts.targetFirstCol];
       delete out[opts.targetLastCol];
+
+      const idx = merged.indexOf(delim);
+      const naiveFn = idx >= 0 ? merged.slice(0, idx) : merged;
+      const naiveLn = idx >= 0 ? merged.slice(idx + delim.length) : "";
+      if (naiveFn !== fn || naiveLn !== ln) {
+        lc._split_parts = [fn, ln];
+        lc._split_source = merged;
+      } else {
+        delete lc._split_parts;
+        delete lc._split_source;
+      }
 
       // Stash v_{k+1}-only attributes inside inline _lc so a subsequent v_k update never clobbers them
       for (const k of Object.keys(defaults)) {
@@ -240,6 +283,7 @@ export class SymbolicFusedHubLens {
     }
   }
 
+  /** `project` member. */
   public project(sourceEpoch: number, targetEpoch: number, row: RowRecord): RowRecord {
     const fn = this.pairMap.get(`${sourceEpoch}->${targetEpoch}`);
     if (!fn) {

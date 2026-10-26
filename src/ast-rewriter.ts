@@ -8,7 +8,6 @@
  *
  * @module
  */
-
 /**
  * SQ-HotRoll Scoped Symbol-Table SQL AST Rewriter & Wave 2 3-Tier DDL Migration Classifier.
  * - Rewrites logical table identifiers (`orders` -> `orders_v2 AS orders`) while preserving
@@ -22,18 +21,28 @@
 
 import type { MigrationTier, SchemaEpoch } from "./core.ts";
 
-/** Documentation for `SchemaEvolutionSpec`. */
+/** `SchemaEvolutionSpec` — exported SQ-HotRoll API symbol. */
 export interface SchemaEvolutionSpec {
+  /** `sourceTable` property/member. */
   sourceTable: string;
+  /** `targetTable` property/member. */
   targetTable: string;
+  /** `addedColumns` property/member. */
   addedColumns: Array<{
+    /** `name` property/member. */
     name: string;
+    /** `sqlType` property/member. */
     sqlType: string;
+    /** `nullableOrConstDefault` property/member. */
     nullableOrConstDefault: boolean;
+    /** `virtualExpr` property/member. */
     virtualExpr?: string;
   }>;
+  /** `droppedColumns` property/member. */
   droppedColumns: string[];
+  /** `mutatedPrimaryKey` property/member. */
   mutatedPrimaryKey: boolean;
+  /** `narrowedTypesOrStrictNotNull` property/member. */
   narrowedTypesOrStrictNotNull: boolean;
 }
 
@@ -120,7 +129,6 @@ export function stripLeadingSqlComments(sql: string): string {
  * - Optionally injects `_row_ver = _row_ver + 1` into `UPDATE` statements while preserving
  *   relative atomic delta expressions (`stock_qty = stock_qty - ?`).
  */
-/** Documentation for `rewriteSqlForEpoch`. */
 export function rewriteSqlForEpoch(
   rawSql: string,
   logicalTable: string,

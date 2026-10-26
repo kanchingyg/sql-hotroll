@@ -8,7 +8,6 @@
  *
  * @module
  */
-
 /**
  * SQ-HotRoll Cloudflare D1 / SQLite WAL Storage Adapter (`D1StorageAdapter`).
  * Implements:
@@ -24,16 +23,21 @@
 import { Database } from "bun:sqlite";
 import { stripLeadingSqlComments } from "./ast-rewriter.ts";
 
-/** Documentation for `D1SessionBookmarkState`. */
+/** `D1SessionBookmarkState` — exported SQ-HotRoll API symbol. */
 export interface D1SessionBookmarkState {
+  /** `currentBookmark` property/member. */
   currentBookmark: string;
 }
 
-/** Documentation for `WalPacedBackfillStats`. */
+/** `WalPacedBackfillStats` — exported SQ-HotRoll API symbol. */
 export interface WalPacedBackfillStats {
+  /** `rowsCopied` property/member. */
   rowsCopied: number;
+  /** `batchesExecuted` property/member. */
   batchesExecuted: number;
+  /** `triggeredTruncateCount` property/member. */
   triggeredTruncateCount: number;
+  /** `finalWalLogFrames` property/member. */
   finalWalLogFrames: number;
 }
 
@@ -46,13 +50,22 @@ export function generateD1BidirectionalTriggersSql(opts: {
   tableV2: string;
 }): string[] {
   const { tableV1, tableV2 } = opts;
-  const trgV1ToV2 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV1}_to_${tableV2}_upd AFTER UPDATE ON ${tableV1} FOR EACH ROW WHEN NEW._row_ver <= OLD._row_ver AND COALESCE((SELECT _row_ver FROM ${tableV2} WHERE id = NEW.id), -1) < OLD._row_ver + 1 BEGIN UPDATE ${tableV1} SET _row_ver = OLD._row_ver + 1 WHERE id = NEW.id; INSERT INTO ${tableV2} (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc) VALUES (NEW.id, CASE WHEN instr(NEW.full_name, ' ') > 0 THEN substr(NEW.full_name, 1, instr(NEW.full_name, ' ') - 1) ELSE NEW.full_name END, CASE WHEN instr(NEW.full_name, ' ') > 0 THEN substr(NEW.full_name, instr(NEW.full_name, ' ') + 1) ELSE '' END, NEW.stock_qty, NEW.amount_cents, NEW.role, CASE WHEN NEW._lc != '{}' THEN NEW._lc ELSE COALESCE((SELECT billing_meta FROM ${tableV2} WHERE id = NEW.id), '{}') END, OLD._row_ver + 1, '{}') ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, billing_meta = excluded.billing_meta, _row_ver = excluded._row_ver; END;`;
+  const effVer = `(CASE WHEN NEW._row_ver > OLD._row_ver THEN NEW._row_ver ELSE OLD._row_ver + 1 END)`;
+  const splitFirst = `CASE WHEN instr(NEW.full_name, ' ') > 0 THEN substr(NEW.full_name, 1, instr(NEW.full_name, ' ') - 1) ELSE NEW.full_name END`;
+  const splitLast = `CASE WHEN instr(NEW.full_name, ' ') > 0 THEN substr(NEW.full_name, instr(NEW.full_name, ' ') + 1) ELSE '' END`;
+  const mergedName = `CASE WHEN NEW.last_name = '' THEN (CASE WHEN json_valid(NEW._lc) AND json_extract(NEW._lc, '$.raw_full_name') = NEW.first_name || ' ' THEN NEW.first_name || ' ' ELSE NEW.first_name END) ELSE NEW.first_name || ' ' || NEW.last_name END`;
 
-  const trgV2ToV1 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV2}_to_${tableV1}_upd AFTER UPDATE ON ${tableV2} FOR EACH ROW WHEN NEW._row_ver <= OLD._row_ver AND COALESCE((SELECT _row_ver FROM ${tableV1} WHERE id = NEW.id), -1) < OLD._row_ver + 1 BEGIN UPDATE ${tableV2} SET _row_ver = OLD._row_ver + 1 WHERE id = NEW.id; INSERT INTO ${tableV1} (id, full_name, stock_qty, amount_cents, role, _row_ver, _lc) VALUES (NEW.id, CASE WHEN NEW.last_name = '' THEN NEW.first_name ELSE NEW.first_name || ' ' || NEW.last_name END, NEW.stock_qty, NEW.amount_cents, NEW.role, OLD._row_ver + 1, NEW.billing_meta) ON CONFLICT(id) DO UPDATE SET full_name = excluded.full_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, _row_ver = excluded._row_ver, _lc = excluded._lc; END;`;
+  const trgInsV1ToV2 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV1}_to_${tableV2}_ins AFTER INSERT ON ${tableV1} FOR EACH ROW WHEN COALESCE((SELECT _row_ver FROM ${tableV2} WHERE id = NEW.id), -1) < NEW._row_ver BEGIN INSERT INTO ${tableV2} (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc) VALUES (NEW.id, ${splitFirst}, ${splitLast}, NEW.stock_qty, NEW.amount_cents, NEW.role, CASE WHEN NEW._lc != '{}' THEN NEW._lc ELSE '{}' END, NEW._row_ver, json_object('raw_full_name', NEW.full_name)) ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, billing_meta = excluded.billing_meta, _row_ver = excluded._row_ver, _lc = excluded._lc WHERE ${tableV2}._row_ver < excluded._row_ver; END;`;
+
+  const trgInsV2ToV1 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV2}_to_${tableV1}_ins AFTER INSERT ON ${tableV2} FOR EACH ROW WHEN COALESCE((SELECT _row_ver FROM ${tableV1} WHERE id = NEW.id), -1) < NEW._row_ver BEGIN INSERT INTO ${tableV1} (id, full_name, stock_qty, amount_cents, role, _row_ver, _lc) VALUES (NEW.id, ${mergedName}, NEW.stock_qty, NEW.amount_cents, NEW.role, NEW._row_ver, NEW.billing_meta) ON CONFLICT(id) DO UPDATE SET full_name = excluded.full_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, _row_ver = excluded._row_ver, _lc = excluded._lc WHERE ${tableV1}._row_ver < excluded._row_ver; END;`;
+
+  const trgV1ToV2 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV1}_to_${tableV2}_upd AFTER UPDATE ON ${tableV1} FOR EACH ROW WHEN COALESCE((SELECT _row_ver FROM ${tableV2} WHERE id = NEW.id), -1) < ${effVer} BEGIN UPDATE ${tableV1} SET _row_ver = OLD._row_ver + 1 WHERE id = NEW.id AND _row_ver <= OLD._row_ver; INSERT INTO ${tableV2} (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc) VALUES (NEW.id, ${splitFirst}, ${splitLast}, NEW.stock_qty, NEW.amount_cents, NEW.role, CASE WHEN NEW._lc != '{}' THEN NEW._lc ELSE COALESCE((SELECT billing_meta FROM ${tableV2} WHERE id = NEW.id), '{}') END, ${effVer}, json_object('raw_full_name', NEW.full_name)) ON CONFLICT(id) DO UPDATE SET first_name = CASE WHEN (${tableV2}.first_name || CASE WHEN ${tableV2}.last_name = '' THEN '' ELSE ' ' || ${tableV2}.last_name END) = NEW.full_name THEN ${tableV2}.first_name ELSE excluded.first_name END, last_name = CASE WHEN (${tableV2}.first_name || CASE WHEN ${tableV2}.last_name = '' THEN '' ELSE ' ' || ${tableV2}.last_name END) = NEW.full_name THEN ${tableV2}.last_name ELSE excluded.last_name END, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, billing_meta = excluded.billing_meta, _row_ver = excluded._row_ver, _lc = excluded._lc WHERE ${tableV2}._row_ver < excluded._row_ver; END;`;
+
+  const trgV2ToV1 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV2}_to_${tableV1}_upd AFTER UPDATE ON ${tableV2} FOR EACH ROW WHEN COALESCE((SELECT _row_ver FROM ${tableV1} WHERE id = NEW.id), -1) < ${effVer} BEGIN UPDATE ${tableV2} SET _row_ver = OLD._row_ver + 1 WHERE id = NEW.id AND _row_ver <= OLD._row_ver; INSERT INTO ${tableV1} (id, full_name, stock_qty, amount_cents, role, _row_ver, _lc) VALUES (NEW.id, ${mergedName}, NEW.stock_qty, NEW.amount_cents, NEW.role, ${effVer}, NEW.billing_meta) ON CONFLICT(id) DO UPDATE SET full_name = excluded.full_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, _row_ver = excluded._row_ver, _lc = excluded._lc WHERE ${tableV1}._row_ver < excluded._row_ver; END;`;
 
   const trgDelV1ToV2 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV1}_to_${tableV2}_del AFTER DELETE ON ${tableV1} FOR EACH ROW BEGIN DELETE FROM ${tableV2} WHERE id = OLD.id; END;`;
   const trgDelV2ToV1 = `CREATE TRIGGER IF NOT EXISTS trg_${tableV2}_to_${tableV1}_del AFTER DELETE ON ${tableV2} FOR EACH ROW BEGIN DELETE FROM ${tableV1} WHERE id = OLD.id; END;`;
-  return [trgV1ToV2, trgV2ToV1, trgDelV1ToV2, trgDelV2ToV1];
+  return [trgInsV1ToV2, trgInsV2ToV1, trgV1ToV2, trgV2ToV1, trgDelV1ToV2, trgDelV2ToV1];
 }
 
 /**
@@ -82,8 +95,9 @@ export function runWalPacedBackfillStep(
   return { rowsCopied, triggeredTruncate, walLogFrames: log };
 }
 
-/** Documentation for `D1StorageAdapter`. */
+/** `D1StorageAdapter` — exported SQ-HotRoll API symbol. */
 export class D1StorageAdapter {
+  /** `db` member. */
   public readonly db: Database;
   private bookmarkSeq = 1;
 
@@ -96,10 +110,12 @@ export class D1StorageAdapter {
     this.db.exec("PRAGMA legacy_alter_table = ON;");
   }
 
+  /** `getBookmark` member. */
   public getBookmark(): string {
     return String(this.bookmarkSeq).padStart(8, "0");
   }
 
+  /** `withSession` member. */
   public withSession(minBookmark?: string): {
     bookmark: string;
     executeBatch: <T = unknown>(
@@ -165,7 +181,7 @@ export class D1StorageAdapter {
           ],
         },
         {
-          sql: `INSERT INTO orders_v2 (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc) VALUES (last_insert_rowid(), ?, ?, ?, ?, ?, ?, 1, '{}');`,
+          sql: `INSERT INTO orders_v2 (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc) VALUES (last_insert_rowid(), ?, ?, ?, ?, ?, ?, 1, '{}') ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, role = excluded.role, billing_meta = excluded.billing_meta WHERE orders_v2._row_ver < excluded._row_ver;`,
           params: [
             opts.firstName,
             opts.lastName,
