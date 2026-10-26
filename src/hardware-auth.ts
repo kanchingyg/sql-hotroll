@@ -23,16 +23,23 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** Documentation for `SSHSIG_MAGIC_PREAMBLE`. */
 export const SSHSIG_MAGIC_PREAMBLE = "SSHSIG";
+/** Documentation for `SSHSIG_VERSION`. */
 export const SSHSIG_VERSION = 0x01;
+/** Documentation for `DEFAULT_HOTROLL_NAMESPACE`. */
 export const DEFAULT_HOTROLL_NAMESPACE = "sql-hotroll@v1";
+/** Documentation for `DEFAULT_SK_APPLICATION`. */
 export const DEFAULT_SK_APPLICATION = "ssh:sql-hotroll";
 
 /** OpenSSH `PROTOCOL.u2f` / `sk-api.h` bitmasks */
 export const SSH_SK_USER_PRESENCE_REQD = 0x01;
+/** Documentation for `SSH_SK_USER_VERIFICATION_REQD`. */
 export const SSH_SK_USER_VERIFICATION_REQD = 0x04;
+/** Documentation for `SSH_SK_RESIDENT_KEY`. */
 export const SSH_SK_RESIDENT_KEY = 0x20;
 
+/** Documentation for `HardwareAuthMethod`. */
 export type HardwareAuthMethod =
   | "fido2-sk"
   | "thinkpad-fprintd"
@@ -41,13 +48,16 @@ export type HardwareAuthMethod =
   | "macos-touchid"
   | "piv-pkcs11";
 
+/** Documentation for `OpenSshSkKeyType`. */
 export type OpenSshSkKeyType =
   | "sk-ssh-ed25519@openssh.com"
   | "sk-ecdsa-sha2-nistp256@openssh.com"
   | "ssh-ed25519";
 
+/** Documentation for `RollbackAuthPolicy`. */
 export type RollbackAuthPolicy = "instant" | "step-up";
 
+/** Documentation for `FprintdVerifyStatusResult`. */
 export type FprintdVerifyStatusResult =
   | "verify-match"
   | "verify-no-match"
@@ -59,6 +69,7 @@ export type FprintdVerifyStatusResult =
   | "verify-disconnected"
   | "verify-unknown-error";
 
+/** Documentation for `FleetAuthenticatorDescriptor`. */
 export interface FleetAuthenticatorDescriptor {
   method: HardwareAuthMethod;
   available: boolean;
@@ -73,6 +84,7 @@ export interface FleetAuthenticatorDescriptor {
   detectedVia: string;
 }
 
+/** Documentation for `MigrationSignPayloadSpec`. */
 export interface MigrationSignPayloadSpec {
   migrationId: string;
   action: "promote" | "cutover" | "rollback";
@@ -85,6 +97,7 @@ export interface MigrationSignPayloadSpec {
   namespace?: string;
 }
 
+/** Documentation for `HardwareAuthAttestation`. */
 export interface HardwareAuthAttestation {
   method: HardwareAuthMethod;
   keyType: OpenSshSkKeyType;
@@ -104,6 +117,7 @@ export interface HardwareAuthAttestation {
   viaSshAgentForwarding?: boolean;
 }
 
+/** Documentation for `ParsedOpenSshSigEnvelope`. */
 export interface ParsedOpenSshSigEnvelope {
   magicPreamble: string;
   version: number;
@@ -123,6 +137,7 @@ export interface ParsedOpenSshSigEnvelope {
   counter: number;
 }
 
+/** Documentation for `VerifyOpenSshSkResult`. */
 export interface VerifyOpenSshSkResult {
   verified: boolean;
   keyType?: OpenSshSkKeyType;

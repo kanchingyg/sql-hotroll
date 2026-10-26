@@ -29,7 +29,9 @@ import {
  */
 
 export type SchemaEpoch = number; // e.g., 1, 2, 3 (bounded by N_max = 3)
+/** Documentation for `UrgencyClass`. */
 export type UrgencyClass = "IMMEDIATE" | "ACTIVE_POLL" | "PASSIVE_IDLE" | "HOLD";
+/** Documentation for `QuiescenceSurface`. */
 export type QuiescenceSurface =
   | "web-navigate"
   | "spa-idle-90s"
@@ -39,11 +41,13 @@ export type QuiescenceSurface =
   | "sandbox-resume"
   | "pos-mac-checkpoint";
 
+/** Documentation for `MigrationTier`. */
 export type MigrationTier =
   | "TIER_0_VIRTUAL_METADATA"
   | "TIER_1_INPLACE_COLUMN"
   | "TIER_2_SHADOW_TABLE";
 
+/** Documentation for `CompositeBookmarkToken`. */
 export interface CompositeBookmarkToken {
   bookmark: string;
   epoch: SchemaEpoch;
@@ -75,6 +79,7 @@ export interface PortableEpochToken {
   hmac: string;
 }
 
+/** Documentation for `HotRollContext`. */
 export interface HotRollContext {
   sessionId: string;
   userId?: string;
@@ -98,6 +103,7 @@ export interface HotRollContext {
   highWaterMarkEpoch?: SchemaEpoch;
 }
 
+/** Documentation for `HotRollSystemState`. */
 export interface HotRollSystemState {
   activeEpochs: SchemaEpoch[]; // Sliding window, max length N_max = 3
   targetEpoch: SchemaEpoch;
@@ -110,6 +116,7 @@ export interface HotRollSystemState {
   blockedDeviceOuIs?: Set<string>; // Hardware OUI / POS shift-freeze hold list
 }
 
+/** Documentation for `CohortSelector`. */
 export type CohortSelector = (ctx: HotRollContext, sys: HotRollSystemState) => SchemaEpoch;
 
 /**
@@ -198,8 +205,10 @@ export function verifyPortableEpochToken(
  */
 
 export const encodeEpochEnvelope = signPortableEpochToken;
+/** Documentation for `verifyEpochEnvelope`. */
 export const verifyEpochEnvelope = verifyPortableEpochToken;
 
+/** Documentation for `parseCompositeToken`. */
 export function parseCompositeToken(raw?: string | null): CompositeBookmarkToken {
   if (!raw || typeof raw !== "string") {
     return { bookmark: "00000000", epoch: 1 };
@@ -271,6 +280,7 @@ export function classifyUrgency(
  *  2. SPA / Streaming Idle Quiescence: `idle >= 90s` + `inFlight == 0` + `dirtyForms == 0` (`AbortController` CAS)
  *  3. Explicit Transaction / Device Checkpoint Boundary (`X-SQ-Checkpoint: ready` with 0 in-flight mutations)
  */
+/** Documentation for `isClientQuiescent`. */
 export function isClientQuiescent(ctx: HotRollContext): boolean {
   if (ctx.secFetchMode === "navigate" || ctx.quiescenceSurface === "web-navigate") {
     return true;
@@ -442,6 +452,7 @@ export class HotRollEngine {
 // 3. Asymmetric Ed25519 + JWKS `kid` Edge Epoch Token (`v2.public.<kid>...`)
 // ============================================================================
 
+/** Documentation for `CanonicalColumnAst`. */
 export interface CanonicalColumnAst {
   name: string;
   sqlType: string;
@@ -450,6 +461,7 @@ export interface CanonicalColumnAst {
   virtualExpr?: string | null;
 }
 
+/** Documentation for `CanonicalLensTransformAst`. */
 export interface CanonicalLensTransformAst {
   kind: "IDENTITY" | "SPLIT_MERGE" | "RENAME_ENRICH" | "COMPUTED_VIRTUAL" | "CUSTOM";
   sourceColumns: string[];
@@ -459,6 +471,7 @@ export interface CanonicalLensTransformAst {
   complementDefaults?: Record<string, unknown>;
 }
 
+/** Documentation for `CanonicalMigrationAstDescriptor`. */
 export interface CanonicalMigrationAstDescriptor {
   tableName: string;
   sourceEpoch: SchemaEpoch;
@@ -584,11 +597,13 @@ export function computeCanonicalAstDigest(
   return `jcs-sha384:${hashHex}`;
 }
 
+/** Documentation for `AttestationSignerRole`. */
 export type AttestationSignerRole =
   | "ci-oidc-fulcio"
   | "spiffe-workload"
   | "hardware-webauthn-kms";
 
+/** Documentation for `InTotoSlsaProvenanceStatement`. */
 export interface InTotoSlsaProvenanceStatement {
   _type: "https://in-toto.io/Statement/v1";
   subject: Array<{
@@ -616,6 +631,7 @@ export interface InTotoSlsaProvenanceStatement {
   };
 }
 
+/** Documentation for `HardwareAuthenticatorModality`. */
 export type HardwareAuthenticatorModality =
   | "fido2-yubikey-sk"
   | "tpm2-fprintd-thinkpad"
@@ -625,8 +641,11 @@ export type HardwareAuthenticatorModality =
   | "ssh-agent-sk-forwarded"
   | "ci-oidc-fulcio";
 
+/** Documentation for `CTAP2_FLAG_UP`. */
 export const CTAP2_FLAG_UP = 0x01; // Bit 0: User Presence (physical key touch / TPM policy session)
+/** Documentation for `CTAP2_FLAG_UV`. */
 export const CTAP2_FLAG_UV = 0x04; // Bit 2: User Verification (match-on-chip fingerprint / PIN)
+/** Documentation for `CTAP2_FLAG_UP_AND_UV`. */
 export const CTAP2_FLAG_UP_AND_UV = 0x05; // Both UP (0x01) and UV (0x04)
 
 /**
@@ -642,18 +661,21 @@ export interface HardwareAuthAssertion {
   deviceModel?: string; // e.g., "ThinkPad X1 Carbon Gen 12 (Synaptics Match-on-Chip + TPM 2.0)"
 }
 
+/** Documentation for `DsseSignatureEntry`. */
 export interface DsseSignatureEntry {
   keyid: string;
   sig: string; // base64url encoded Ed25519 signature over DSSEv1 PAE (+ bound HardwareAuthAssertion)
   hardwareAssertion?: HardwareAuthAssertion;
 }
 
+/** Documentation for `MigrationDsseEnvelope`. */
 export interface MigrationDsseEnvelope {
   payloadType: "application/vnd.in-toto+json";
   payload: string; // base64url encoded RFC 8785 JCS canonical statement bytes
   signatures: DsseSignatureEntry[];
 }
 
+/** Documentation for `TrustPolicy`. */
 export interface TrustPolicy {
   minQuorum: number;
   trustedKeys: Record<
@@ -698,6 +720,7 @@ export function encodeDssePae(
  * Because `ctapFlags` and `signCount` are inside the signed bytes, tampering with them in JSON
  * invalidates the Ed25519 signature.
  */
+/** Documentation for `encodeHardwareBoundPae`. */
 export function encodeHardwareBoundPae(
   pae: Uint8Array,
   hw?: HardwareAuthAssertion
@@ -1051,6 +1074,7 @@ export function verifyMigrationDsseQuorum(
  */
 export type JwksKeyset = Record<string, KeyObject | string>;
 
+/** Documentation for `AsymmetricPortableEpochToken`. */
 export interface AsymmetricPortableEpochToken extends PortableEpochToken {
   kid: string;
   signature: string;

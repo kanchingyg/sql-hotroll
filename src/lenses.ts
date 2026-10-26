@@ -17,6 +17,7 @@
 
 export type RowRecord = Record<string, unknown>;
 
+/** Documentation for `BidirectionalLens`. */
 export interface BidirectionalLens {
   readonly fromEpoch: number;
   readonly toEpoch: number;

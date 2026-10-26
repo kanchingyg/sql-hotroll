@@ -29,6 +29,7 @@ import {
   type SchemaEpoch,
 } from "./core.ts";
 
+/** Documentation for `QuiescenceSwapResult`. */
 export interface QuiescenceSwapResult {
   upgraded: boolean;
   previousEpoch: SchemaEpoch;
@@ -46,6 +47,7 @@ export interface QuiescenceSwapResult {
     | "IN_FLIGHT_REQUESTS_BLOCKED";
 }
 
+/** Documentation for `QuiescenceDetector`. */
 export class QuiescenceDetector {
   private tabSchemaEpoch: SchemaEpoch;
   private pendingUpgradeEpoch: SchemaEpoch | null = null;

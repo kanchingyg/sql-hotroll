@@ -18,10 +18,14 @@ import {
 } from "node:crypto";
 import type { SchemaEpoch } from "./core.ts";
 
+/** Documentation for `IN_TOTO_STATEMENT_V1_TYPE`. */
 export const IN_TOTO_STATEMENT_V1_TYPE = "https://in-toto.io/Statement/v1";
+/** Documentation for `SLSA_PROVENANCE_V1_PREDICATE_TYPE`. */
 export const SLSA_PROVENANCE_V1_PREDICATE_TYPE = "https://slsa.dev/provenance/v1";
+/** Documentation for `DSSE_PAYLOAD_TYPE_IN_TOTO`. */
 export const DSSE_PAYLOAD_TYPE_IN_TOTO = "application/vnd.in-toto+json";
 
+/** Documentation for `FleetAuthenticatorModality`. */
 export type FleetAuthenticatorModality =
   | "fido2-yubikey-ctap2"
   | "thinkpad-fprintd-tpm2"
@@ -30,12 +34,14 @@ export type FleetAuthenticatorModality =
   | "piv-smartcard-pkcs11-ssh-agent"
   | "oidc-spiffe-keyless-workload";
 
+/** Documentation for `HardwareTouchState`. */
 export type HardwareTouchState =
   | "IDLE_UNVERIFIED"
   | "WAITING_FOR_BIOMETRIC_OR_KEY_TOUCH"
   | "HARDWARE_QUORUM_SEALED"
   | "REJECTED_OR_TAMPERED";
 
+/** Documentation for `Ed25519JwkPublic`. */
 export interface Ed25519JwkPublic {
   kid: string;
   kty: "OKP";
@@ -45,14 +51,17 @@ export interface Ed25519JwkPublic {
   deviceLabel: string;
 }
 
+/** Documentation for `Ed25519SignerKeypair`. */
 export interface Ed25519SignerKeypair extends Ed25519JwkPublic {
   privateKeyPem: string;
 }
 
+/** Documentation for `Ed25519JwksKeyset`. */
 export interface Ed25519JwksKeyset {
   keys: Ed25519JwkPublic[];
 }
 
+/** Documentation for `KeylessOidcWorkloadClaim`. */
 export interface KeylessOidcWorkloadClaim {
   issuer: string; // e.g., "https://token.actions.githubusercontent.com" or "https://fulcio.sigstore.dev"
   spiffeId: string; // e.g., "spiffe://prod.internal/ns/db-ops/sa/sql-hotroll-runner"
@@ -62,6 +71,7 @@ export interface KeylessOidcWorkloadClaim {
   fulcioCertThumbprint: string;
 }
 
+/** Documentation for `HardwareBiometricAssertionMeta`. */
 export interface HardwareBiometricAssertionMeta {
   modality: FleetAuthenticatorModality;
   deviceLabel: string; // e.g., "ThinkPad X1 Carbon Gen 12 (Synaptics Match-on-Chip fprintd + /dev/tpmrm0)"
@@ -72,6 +82,7 @@ export interface HardwareBiometricAssertionMeta {
   attestedAtIso: string;
 }
 
+/** Documentation for `SqlAstStructuralSpec`. */
 export interface SqlAstStructuralSpec {
   tableName: string;
   sourceEpoch: SchemaEpoch;
@@ -81,6 +92,7 @@ export interface SqlAstStructuralSpec {
   invariants?: string[];
 }
 
+/** Documentation for `InTotoSlsaMigrationStatement`. */
 export interface InTotoSlsaMigrationStatement {
   _type: typeof IN_TOTO_STATEMENT_V1_TYPE;
   subject: Array<{
@@ -115,6 +127,7 @@ export interface InTotoSlsaMigrationStatement {
   };
 }
 
+/** Documentation for `DsseSignatureEntry`. */
 export interface DsseSignatureEntry {
   keyid: string;
   sig: string; // base64url encoded Ed25519 signature over DSSE PAE
@@ -122,12 +135,14 @@ export interface DsseSignatureEntry {
   deviceLabel: string;
 }
 
+/** Documentation for `DsseEnvelope`. */
 export interface DsseEnvelope {
   payload: string; // base64url encoded canonical RFC 8785 JSON of InTotoSlsaMigrationStatement
   payloadType: typeof DSSE_PAYLOAD_TYPE_IN_TOTO;
   signatures: DsseSignatureEntry[];
 }
 
+/** Documentation for `SlsaCiMergeVerificationResult`. */
 export interface SlsaCiMergeVerificationResult {
   verified: boolean;
   ciMergeReady: boolean;
@@ -417,6 +432,7 @@ export function createSignedDsseMigrationEnvelope(params: {
  *  - Anti-replay challenge nonce & previous envelope digest chain continuity
  *  - Z3 formal proof (`8/8 UNSAT`) & Dark-Canary zero-diff (`1000/1000`) receipts
  */
+/** Documentation for `verifyDsseMigrationEnvelope`. */
 export function verifyDsseMigrationEnvelope(params: {
   envelope: DsseEnvelope;
   expectedAstSpec: SqlAstStructuralSpec;
@@ -616,6 +632,7 @@ export function verifyDsseMigrationEnvelope(params: {
 // Zero shared HMAC secrets on CDN POPs or Kubernetes Pods!
 // ---------------------------------------------------------------------------
 
+/** Documentation for `PasetoV4PublicEpochClaims`. */
 export interface PasetoV4PublicEpochClaims {
   epoch: SchemaEpoch;
   causalBookmark: string;
@@ -625,6 +642,7 @@ export interface PasetoV4PublicEpochClaims {
   expMs: number;
 }
 
+/** Documentation for `PasetoV4Footer`. */
 export interface PasetoV4Footer {
   kid: string;
   alg: "Ed25519";

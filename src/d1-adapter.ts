@@ -24,10 +24,12 @@
 import { Database } from "bun:sqlite";
 import { stripLeadingSqlComments } from "./ast-rewriter.ts";
 
+/** Documentation for `D1SessionBookmarkState`. */
 export interface D1SessionBookmarkState {
   currentBookmark: string;
 }
 
+/** Documentation for `WalPacedBackfillStats`. */
 export interface WalPacedBackfillStats {
   rowsCopied: number;
   batchesExecuted: number;
@@ -80,6 +82,7 @@ export function runWalPacedBackfillStep(
   return { rowsCopied, triggeredTruncate, walLogFrames: log };
 }
 
+/** Documentation for `D1StorageAdapter`. */
 export class D1StorageAdapter {
   public readonly db: Database;
   private bookmarkSeq = 1;

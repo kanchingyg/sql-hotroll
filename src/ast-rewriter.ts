@@ -22,6 +22,7 @@
 
 import type { MigrationTier, SchemaEpoch } from "./core.ts";
 
+/** Documentation for `SchemaEvolutionSpec`. */
 export interface SchemaEvolutionSpec {
   sourceTable: string;
   targetTable: string;
@@ -119,6 +120,7 @@ export function stripLeadingSqlComments(sql: string): string {
  * - Optionally injects `_row_ver = _row_ver + 1` into `UPDATE` statements while preserving
  *   relative atomic delta expressions (`stock_qty = stock_qty - ?`).
  */
+/** Documentation for `rewriteSqlForEpoch`. */
 export function rewriteSqlForEpoch(
   rawSql: string,
   logicalTable: string,

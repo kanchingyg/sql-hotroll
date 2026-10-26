@@ -11,6 +11,7 @@
 
 import type { HardwareAuthenticatorModality, MigrationTier, SchemaEpoch } from "./core.ts";
 
+/** Documentation for `TuiPhase`. */
 export type TuiPhase =
   | "DARK_CANARY"
   | "PROGRESSIVE_ROLLOUT"
@@ -18,8 +19,10 @@ export type TuiPhase =
   | "ROLLED_BACK"
   | "COMPLETED";
 
+/** Documentation for `TuiCommandMode`. */
 export type TuiCommandMode = "apply" | "watch" | "rollback" | "complete" | "ci-gate";
 
+/** Documentation for `HotRollSurfaceTelemetry`. */
 export interface HotRollSurfaceTelemetry {
   webNavigatePct: number;
   spaIdle90sPct: number;
@@ -29,6 +32,7 @@ export interface HotRollSurfaceTelemetry {
   k8sPodsTotal: number;
 }
 
+/** Documentation for `HotRollAttestationTelemetry`. */
 export interface HotRollAttestationTelemetry {
   validSignatures: number;
   requiredQuorum: number;
@@ -42,6 +46,7 @@ export interface HotRollAttestationTelemetry {
   awaitingHardwarePrompt?: boolean;
 }
 
+/** Documentation for `HotRollTuiState`. */
 export interface HotRollTuiState {
   version: string;
   mode: TuiCommandMode;
@@ -78,6 +83,7 @@ export interface HotRollTuiState {
   quitRequested: boolean;
 }
 
+/** Documentation for `HotRollTuiRenderOptions`. */
 export interface HotRollTuiRenderOptions {
   /** Enable ANSI escape colors/bold/dim. Defaults to true unless NO_COLOR is set. */
   color?: boolean;
@@ -260,6 +266,7 @@ export function createDefaultTuiState(
  * - `[C]` Complete cutover (`100%` on `v2`), drop `_time_machine_delta`, truncate WAL to `0 KB`
  * - `[Q]` or `Ctrl+C` (`\u0003`) Quit interactive TUI loop
  */
+/** Documentation for `handleKeypress`. */
 export function handleKeypress(
   state: HotRollTuiState,
   rawKey: string
@@ -749,6 +756,7 @@ export function renderHotRollTuiFrame(
 // Extended TUI Primitives (@oh-my-pi/pi-tui + Codex + Clack spec compatibility)
 // ---------------------------------------------------------------------------
 
+/** Documentation for `ANSI_EXT`. */
 export const ANSI_EXT = {
   ...ANSI,
   HIDE_CURSOR: "\x1b[?25l",
@@ -761,6 +769,7 @@ export const ANSI_EXT = {
 
 export { ANSI_EXT as ANSI };
 
+/** Documentation for `visibleWidth`. */
 export function visibleWidth(input: string): number {
   const noOsc = input.replace(/\x1b\]8;;.*?\x07/g, "");
   // eslint-disable-next-line no-control-regex
@@ -768,6 +777,7 @@ export function visibleWidth(input: string): number {
   return Array.from(noSgr).length;
 }
 
+/** Documentation for `fitWidth`. */
 export function fitWidth(input: string, width: number): string {
   const w = visibleWidth(input);
   if (w === width) return input;
@@ -778,6 +788,7 @@ export function fitWidth(input: string, width: number): string {
 
 const FRACTIONAL_BLOCKS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"] as const;
 
+/** Documentation for `renderFractionalBar`. */
 export function renderFractionalBar(
   ratio: number,
   width: number,
@@ -812,6 +823,7 @@ export function renderFractionalBar(
 const LEFT_BRAILLE_DOTS = [0, 0x40, 0x44, 0x46, 0x47] as const;
 const RIGHT_BRAILLE_DOTS = [0, 0x80, 0xa0, 0xb0, 0xb8] as const;
 
+/** Documentation for `renderBrailleSparkline`. */
 export function renderBrailleSparkline(
   samples: readonly number[],
   maxVal = 100
@@ -829,6 +841,7 @@ export function renderBrailleSparkline(
   return out.join("");
 }
 
+/** Documentation for `resolveSynchronizedOutput`. */
 export function resolveSynchronizedOutput(
   env: Record<string, string | undefined> = {}
 ): boolean {
@@ -841,6 +854,7 @@ export function resolveSynchronizedOutput(
   return true;
 }
 
+/** Documentation for `HotRollTheme`. */
 export interface HotRollTheme {
   enabled: boolean;
   primary: (s: string) => string;
@@ -850,6 +864,7 @@ export interface HotRollTheme {
   muted: (s: string) => string;
 }
 
+/** Documentation for `resolveTheme`. */
 export function resolveTheme(
   env: Record<string, string | undefined> = {},
   isTTY = true
@@ -868,6 +883,7 @@ export function resolveTheme(
   };
 }
 
+/** Documentation for `DifferentialTuiRenderer`. */
 export class DifferentialTuiRenderer {
   private prevLines: string[] = [];
   private prevWidth = 0;
@@ -936,6 +952,7 @@ export class DifferentialTuiRenderer {
   }
 }
 
+/** Documentation for `DashboardSnapshot`. */
 export interface DashboardSnapshot {
   migrationId: string;
   tierLabel: string;
@@ -956,6 +973,7 @@ export interface DashboardSnapshot {
   stepUpPromptBanner?: string;
 }
 
+/** Documentation for `renderHotRollDashboard`. */
 export function renderHotRollDashboard(
   snap: DashboardSnapshot,
   width = 76,
@@ -1008,6 +1026,7 @@ export function renderHotRollDashboard(
   return lines;
 }
 
+/** Documentation for `renderClackTree`. */
 export function renderClackTree(
   title: string,
   steps: Array<{ label: string; status: "done" | "active" | "pending"; detail?: string }>,
@@ -1025,6 +1044,7 @@ export function renderClackTree(
   return out;
 }
 
+/** Documentation for `parseHotRollKeystroke`. */
 export function parseHotRollKeystroke(
   key: string
 ):
@@ -1047,6 +1067,7 @@ export function parseHotRollKeystroke(
   return "noop";
 }
 
+/** Documentation for `ZeroTrustProvenancePanelState`. */
 export interface ZeroTrustProvenancePanelState {
   migrationId: string;
   jcsAstDigestShort: string;
@@ -1098,6 +1119,7 @@ export function renderCiGateProvenancePanel(
   ];
 }
 
+/** Documentation for `HardwareAuthenticatorClass`. */
 export type HardwareAuthenticatorClass =
   | "fido2-yubikey-sk-ed25519"
   | "linux-fprintd-tpm2"
@@ -1105,6 +1127,7 @@ export type HardwareAuthenticatorClass =
   | "macos-touchid-se"
   | "piv-cac-pkcs11-ssh-agent";
 
+/** Documentation for `HardwareAuthenticatorModalState`. */
 export interface HardwareAuthenticatorModalState {
   migrationId: string;
   jcsDigestShort: string;
@@ -1113,6 +1136,7 @@ export interface HardwareAuthenticatorModalState {
   signCount: number;
 }
 
+/** Documentation for `renderHardwareAuthenticatorModal`. */
 export function renderHardwareAuthenticatorModal(
   modal: HardwareAuthenticatorModalState,
   width = 76,

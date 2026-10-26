@@ -20,8 +20,10 @@
  *    `plancache.c` `SQLSTATE 0A000: cached plan must not change result type`)
  */
 
+/** Documentation for `PgLockSeverity`. */
 export type PgLockSeverity = "SAFE" | "DANGEROUS" | "CRITICAL";
 
+/** Documentation for `PgLockHazardReport`. */
 export interface PgLockHazardReport {
   ddl: string;
   lockMode:
