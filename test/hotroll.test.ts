@@ -1,4 +1,10 @@
 import {
+  createOpenSshSkSignatureEnvelope,
+  generateOpenSshSkKeyPair,
+  verifyOpenSshSkSignatureEnvelope,
+} from "../src/hardware-auth.ts";
+import {
+  canonicalizeRfc8785Jcs,
   createDefaultFleetHardwareSetup,
   createSignedDsseMigrationEnvelope,
   verifyDsseMigrationEnvelope,
@@ -16,6 +22,7 @@ import {
   type CanonicalMigrationAstDescriptor,
   HotRollEngine,
   advanceCompositeToken,
+  canonicalizeJsonRfc8785,
   computeAffinityHash,
   computeCanonicalAstDigest,
   createMigrationDsseEnvelope,
@@ -412,6 +419,25 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
     expect(Number(rows[0]._row_ver)).toBe(3);
     expect(Number(rowsV1[0].stock_qty)).toBe(32);
     expect(Number(rowsV1[0]._row_ver)).toBe(3);
+
+    // 3. Trailing-delimiter "Ada " round-trips v1 -> v2 -> v1 on live PostgreSQL 17.11 via _lc.raw_full_name
+    await pg.unsafe(`
+      INSERT INTO test_hr_pg_v1 (id, full_name, stock_qty, amount_cents, role, _row_ver, _lc)
+      VALUES (102, 'Ada ', 15, 2500, 'user', 1, '{"tier":"edge"}');
+      UPDATE test_hr_pg_v2 SET stock_qty = 14 WHERE id = 102;
+    `);
+    const adaV2 = await pg.unsafe(
+      `SELECT first_name, last_name, stock_qty, _row_ver FROM test_hr_pg_v2 WHERE id = 102;`
+    );
+    const adaV1 = await pg.unsafe(
+      `SELECT full_name, stock_qty, _row_ver FROM test_hr_pg_v1 WHERE id = 102;`
+    );
+    expect(adaV2[0].first_name).toBe("Ada");
+    expect(adaV2[0].last_name).toBe("");
+    expect(Number(adaV2[0].stock_qty)).toBe(14);
+    expect(adaV1[0].full_name).toBe("Ada ");
+    expect(Number(adaV1[0].stock_qty)).toBe(14);
+    expect(Number(adaV1[0]._row_ver)).toBe(2);
 
     await pg.unsafe(
       `DROP TABLE IF EXISTS test_hr_pg_v1 CASCADE; DROP TABLE IF EXISTS test_hr_pg_v2 CASCADE;`
@@ -1155,5 +1181,174 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
     expect(v1AfterRawUpd._row_ver).toBe(3);
     expect(v2AfterRawUpd._row_ver).toBe(3);
     d1.db.close();
+  });
+
+  test("Audit Regression: AST rewriter keeps implicit aliases, never edits string literals, scopes the _row_ver check to SET, and recognizes MATERIALIZED / column-list CTEs", () => {
+    const rw = (sql: string, inject = false) =>
+      rewriteSqlForEpoch(sql, "orders", 2, { injectRowVerIncrement: inject });
+    expect(rw("SELECT o.id FROM orders o JOIN orders p ON p.id = o.id")).toBe(
+      "SELECT o.id FROM orders_v2 o JOIN orders_v2 p ON p.id = o.id"
+    );
+    expect(rw("SELECT * FROM orders JOIN orders p ON p.id = orders.id")).toBe(
+      "SELECT * FROM orders_v2 AS orders JOIN orders_v2 p ON p.id = orders.id"
+    );
+    expect(rw("INSERT INTO orders (note) VALUES ('moved INTO orders; it''s FROM orders')")).toBe(
+      "INSERT INTO orders_v2 (note) VALUES ('moved INTO orders; it''s FROM orders')"
+    );
+    expect(rw("UPDATE orders SET n = 1 WHERE id = 1 AND _row_ver = 3", true)).toBe(
+      "UPDATE orders_v2 SET _row_ver = _row_ver + 1, n = 1 WHERE id = 1 AND _row_ver = 3"
+    );
+    expect(rw("UPDATE orders SET _row_ver = 9 WHERE id = 1", true)).toBe(
+      "UPDATE orders_v2 SET _row_ver = 9 WHERE id = 1"
+    );
+    for (const cte of [
+      "WITH orders AS MATERIALIZED (SELECT 1 AS id) SELECT * FROM orders",
+      "WITH orders(id) AS (SELECT 1) SELECT * FROM orders",
+    ]) {
+      expect(rw(cte)).toBe(cte);
+    }
+  });
+
+  test("Audit Regression: D1 dual-insert honors caller name parts under INSERT triggers and backfilled 'Ada ' survives a v2 -> v1 round trip", () => {
+    const ddl = `
+      CREATE TABLE orders_v1 (id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, stock_qty INTEGER NOT NULL, amount_cents INTEGER NOT NULL, role TEXT NOT NULL, _row_ver INTEGER NOT NULL DEFAULT 1, _lc TEXT NOT NULL DEFAULT '{}');
+      CREATE TABLE orders_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, first_name TEXT NOT NULL, last_name TEXT NOT NULL, stock_qty INTEGER NOT NULL, amount_cents INTEGER NOT NULL, role TEXT NOT NULL, billing_meta TEXT NOT NULL DEFAULT '{}', _row_ver INTEGER NOT NULL DEFAULT 1, _lc TEXT NOT NULL DEFAULT '{}');`;
+    const install = (d1: D1StorageAdapter) => {
+      for (const trg of generateD1BidirectionalTriggersSql({ tableV1: "orders_v1", tableV2: "orders_v2" })) {
+        d1.db.exec(trg);
+      }
+    };
+
+    const dual = new D1StorageAdapter(":memory:");
+    dual.db.exec(ddl);
+    install(dual);
+    const { insertedId } = dual.insertDualAutoIncrementOrder({
+      fullName: "Jean Luc Picard", firstName: "Jean Luc", lastName: "Picard",
+      stockQty: 1, amountCents: 1, role: "x", billingMetaJson: '{"k":1}',
+    });
+    const v1 = dual.db.query("SELECT full_name, _row_ver FROM orders_v1 WHERE id = ?").get(insertedId) as { full_name: string; _row_ver: number };
+    const v2 = dual.db.query("SELECT first_name, last_name, billing_meta, _row_ver FROM orders_v2 WHERE id = ?").get(insertedId) as { first_name: string; last_name: string; billing_meta: string; _row_ver: number };
+    expect([v2.first_name, v2.last_name]).toEqual(["Jean Luc", "Picard"]);
+    expect(v1.full_name).toBe("Jean Luc Picard");
+    expect(v2._row_ver).toBe(v1._row_ver);
+    expect(v2.billing_meta).toBe('{"k":1}');
+    dual.db.close();
+
+    const back = new D1StorageAdapter(":memory:");
+    back.db.exec(ddl);
+    back.db.exec("INSERT INTO orders_v1 (id, full_name, stock_qty, amount_cents, role) VALUES (1, 'Ada ', 1, 1, 'x')");
+    expect(back.runKeysetBackfill({ columnsCount: 9 }).rowsCopied).toBe(1);
+    install(back);
+    back.db.exec("UPDATE orders_v2 SET stock_qty = 2 WHERE id = 1");
+    const roundTrip = back.db.query("SELECT full_name FROM orders_v1 WHERE id = 1").get() as { full_name: string };
+    expect(roundTrip.full_name).toBe("Ada ");
+    back.db.close();
+  });
+
+  test("Audit Regression: DSSE quorum fails closed on invalid thresholds, epoch tokens parse strictly, and both JCS entry points reject unsupported values", () => {
+    const stripped = createMigrationDsseEnvelope(
+      {
+        tableName: "orders",
+        canonicalAstDigest: "d",
+        parentEpochDigest: "p",
+        targetEpoch: 2,
+        z3ProofVerified: true,
+        spiffeOrOidcSubject: "s",
+        invocationId: "i",
+      },
+      []
+    );
+    for (const minQuorum of [0, -1, 1.5, Number.NaN, undefined]) {
+      const res = verifyMigrationDsseQuorum(stripped, { minQuorum, trustedKeys: {} } as never);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toBe("INVALID_POLICY_MIN_QUORUM");
+    }
+
+    expect(parseCompositeToken("bm@2").epoch).toBe(2);
+    for (const bad of ["bm@2abc", "bm@2.9", "bm@1e3", "bm@-3", "bm@99999999999999999999"]) {
+      expect(parseCompositeToken(bad).epoch).toBe(1);
+    }
+
+    for (const unsupported of [{ a: 1n }, { a: () => 1 }, [Symbol("x")]]) {
+      expect(() => canonicalizeJsonRfc8785(unsupported)).toThrow();
+      expect(() => canonicalizeRfc8785Jcs(unsupported)).toThrow();
+    }
+    expect(canonicalizeRfc8785Jcs({ b: [1, null], a: "x" })).toBe('{"a":"x","b":[1,null]}');
+  });
+
+  test("Audit Regression: OpenSSH SK verifies cryptographic signature before counter check, and DSSE quorum deduplicates aliased keyids sharing one public key", () => {
+    const sk = generateOpenSshSkKeyPair("sk-ssh-ed25519@openssh.com");
+    const otherSk = generateOpenSshSkKeyPair("sk-ssh-ed25519@openssh.com");
+    const msg = "SQ-HOTROLL-COUNTER-ORDER-TEST";
+
+    // Valid signature signed with otherSk, but we tamper the message so cryptoVerify fails while counter (10) <= lastSeenCounter (50)
+    const env = createOpenSshSkSignatureEnvelope({
+      message: msg,
+      privateKeyPem: otherSk.privateKeyPem,
+      rawPublicKey: sk.rawPublicKey,
+      keyType: "sk-ssh-ed25519@openssh.com",
+      flags: 0x05,
+      counter: 10,
+    });
+    const forgedWithStaleCounter = verifyOpenSshSkSignatureEnvelope({
+      armoredSignature: env.armoredSignature,
+      message: msg,
+      lastSeenCounter: 50,
+    });
+    expect(forgedWithStaleCounter.verified).toBe(false);
+    expect(forgedWithStaleCounter.failureReason).toBe("CRYPTOGRAPHIC_SIGNATURE_INVALID");
+
+    // Authentic signature with stale counter (10 <= 50) fails with SIGNATURE_COUNTER_REGRESSION_OR_CLONE
+    const validEnv = createOpenSshSkSignatureEnvelope({
+      message: msg,
+      privateKeyPem: sk.privateKeyPem,
+      rawPublicKey: sk.rawPublicKey,
+      keyType: "sk-ssh-ed25519@openssh.com",
+      flags: 0x05,
+      counter: 10,
+    });
+    const authenticStaleCounter = verifyOpenSshSkSignatureEnvelope({
+      armoredSignature: validEnv.armoredSignature,
+      message: msg,
+      lastSeenCounter: 50,
+    });
+    expect(authenticStaleCounter.verified).toBe(false);
+    expect(authenticStaleCounter.failureReason).toBe("SIGNATURE_COUNTER_REGRESSION_OR_CLONE");
+
+    // Distinct keyids sharing identical Ed25519 public key material count at most once toward quorum in both core.ts and attestation.ts
+    const fleet = createDefaultFleetHardwareSetup();
+    const sharedSigner = fleet.oidcSigner;
+    const dsseEnv = createMigrationDsseEnvelope(
+      {
+        tableName: "orders",
+        canonicalAstDigest: "ast-1",
+        parentEpochDigest: "parent-0",
+        targetEpoch: 2,
+        z3ProofVerified: true,
+        spiffeOrOidcSubject: "spiffe://prod.internal/ns/db/sa/runner",
+        invocationId: "inv-dup-pub",
+      },
+      [
+        { keyid: "key-alias-1", privateKey: sharedSigner.privateKeyPem },
+        { keyid: "key-alias-2", privateKey: sharedSigner.privateKeyPem },
+      ]
+    );
+    const coreQuorumRes = verifyMigrationDsseQuorum(dsseEnv, {
+      minQuorum: 2,
+      requireDistinctRoles: true,
+      trustedKeys: {
+        "key-alias-1": {
+          publicKeyPemOrHex: sharedSigner.publicKeyPem,
+          role: "ci-oidc-fulcio",
+        },
+        "key-alias-2": {
+          publicKeyPemOrHex: sharedSigner.publicKeyPem,
+          role: "spiffe-workload",
+        },
+      },
+    });
+    expect(coreQuorumRes.verified).toBe(false);
+    expect(coreQuorumRes.validSigners).toEqual(["key-alias-1"]);
+    expect(coreQuorumRes.reason).toBe("QUORUM_NOT_MET_1_OF_2");
   });
 });

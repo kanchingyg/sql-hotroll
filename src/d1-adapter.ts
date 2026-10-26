@@ -181,7 +181,7 @@ export class D1StorageAdapter {
           ],
         },
         {
-          sql: `INSERT INTO orders_v2 (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc) VALUES (last_insert_rowid(), ?, ?, ?, ?, ?, ?, 1, '{}') ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, role = excluded.role, billing_meta = excluded.billing_meta WHERE orders_v2._row_ver < excluded._row_ver;`,
+          sql: `INSERT INTO orders_v2 (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc) VALUES (last_insert_rowid(), ?, ?, ?, ?, ?, ?, 1, '{}') ON CONFLICT(id) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, stock_qty = excluded.stock_qty, amount_cents = excluded.amount_cents, role = excluded.role, billing_meta = excluded.billing_meta WHERE orders_v2._row_ver <= excluded._row_ver AND (orders_v2.first_name IS NOT excluded.first_name OR orders_v2.last_name IS NOT excluded.last_name);`,
           params: [
             opts.firstName,
             opts.lastName,
@@ -202,7 +202,8 @@ export class D1StorageAdapter {
 
   /**
    * Runs keyset-paginated backfill from `orders_v1` -> `orders_v2` respecting D1's
-   * 100-bound-parameter ceiling (`B = floor(100 / C)`) and `ON CONFLICT(id) DO NOTHING`
+   * 100-bound-parameter ceiling (`B = floor(100 / C)`) and a guarded
+   * `ON CONFLICT(id) DO UPDATE ... WHERE orders_v2._row_ver < excluded._row_ver` upsert,
    * so live `v2` updates are never clobbered by a stale backfill cursor.
    */
   public runKeysetBackfill(opts?: {
@@ -224,7 +225,7 @@ export class D1StorageAdapter {
     );
     const insV2 = this.db.prepare(`
       INSERT INTO orders_v2 (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, '{}'
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, json_object('raw_full_name', ?)
       WHERE EXISTS (SELECT 1 FROM orders_v1 WHERE id = ?)
       ON CONFLICT(id) DO UPDATE SET
         first_name = excluded.first_name,
@@ -233,7 +234,8 @@ export class D1StorageAdapter {
         amount_cents = excluded.amount_cents,
         role = excluded.role,
         billing_meta = CASE WHEN orders_v2.billing_meta != '{}' THEN orders_v2.billing_meta ELSE excluded.billing_meta END,
-        _row_ver = excluded._row_ver
+        _row_ver = excluded._row_ver,
+        _lc = excluded._lc
       WHERE orders_v2._row_ver < excluded._row_ver
     `);
 
@@ -265,6 +267,7 @@ export class D1StorageAdapter {
                 r.role,
                 r._lc,
                 r._row_ver,
+                r.full_name,
                 r.id
               );
               cursorId = r.id;

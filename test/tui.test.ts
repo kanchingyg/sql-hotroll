@@ -556,4 +556,22 @@ describe("SQ-HotRoll ASCII/Unicode TUI Engine (@oh-my-pi/pi-tui + Codex + Clack 
     expect(winWithWebauthn.find((f) => f.method === "windows-hello")?.available).toBe(true);
     expect(winWithWebauthn.find((f) => f.method === "fido2-sk")?.available).toBe(true);
   });
+
+  test("Audit Regression: quorum credits each hardware role once (k=FIDO2, f=fprintd) and asciiOnly is pure 7-bit at constant width", () => {
+    const base = createInitialTuiState();
+    const zero = createInitialTuiState({
+      attestation: { ...base.attestation, validSignatures: 0, requiredQuorum: 2, countedHardwareRoles: [] },
+    });
+    const trace = (keys: string[]) => {
+      let st = zero;
+      return keys.map((k) => (st = applyTuiKeypress(st, k)).attestation.validSignatures);
+    };
+    expect(trace(["m", "m", "m"])).toEqual([1, 1, 1]);
+    expect(trace(["k", "k", "f", "f", "k"])).toEqual([1, 1, 2, 2, 2]);
+
+    const frame = renderHotRollTuiFrame(applyTuiKeypress(base, "m"), { color: false, asciiOnly: true });
+    expect(frame).not.toMatch(/[^\x00-\x7f]/);
+    expect(frame).not.toContain("?");
+    expect(new Set(frame.split("\n").map((l) => l.length)).size).toBe(1);
+  });
 });

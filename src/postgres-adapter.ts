@@ -116,14 +116,15 @@ BEGIN
     ln := '';
   END IF;
   INSERT INTO ${tableV2} (id, first_name, last_name, stock_qty, amount_cents, role, billing_meta, _row_ver, _lc)
-  VALUES (NEW.id, fn, ln, NEW.stock_qty, NEW.amount_cents, NEW.role, NEW._lc, NEW._row_ver, '{}')
+  VALUES (NEW.id, fn, ln, NEW.stock_qty, NEW.amount_cents, NEW.role, NEW._lc, NEW._row_ver, jsonb_build_object('raw_full_name', NEW.full_name)::text)
   ON CONFLICT (id) DO UPDATE SET
     first_name = CASE WHEN (${tableV2}.first_name || CASE WHEN ${tableV2}.last_name = '' THEN '' ELSE ' ' || ${tableV2}.last_name END) = NEW.full_name THEN ${tableV2}.first_name ELSE EXCLUDED.first_name END,
     last_name = CASE WHEN (${tableV2}.first_name || CASE WHEN ${tableV2}.last_name = '' THEN '' ELSE ' ' || ${tableV2}.last_name END) = NEW.full_name THEN ${tableV2}.last_name ELSE EXCLUDED.last_name END,
     stock_qty = EXCLUDED.stock_qty,
     amount_cents = EXCLUDED.amount_cents,
     billing_meta = CASE WHEN EXCLUDED.billing_meta != '{}' THEN EXCLUDED.billing_meta ELSE ${tableV2}.billing_meta END,
-    _row_ver = GREATEST(${tableV2}._row_ver, EXCLUDED._row_ver)
+    _row_ver = GREATEST(${tableV2}._row_ver, EXCLUDED._row_ver),
+    _lc = EXCLUDED._lc
   WHERE ${tableV2}._row_ver < EXCLUDED._row_ver;
   RETURN NEW;
 END;
@@ -137,7 +138,15 @@ BEGIN
     RETURN NEW;
   END IF;
   IF NEW.last_name = '' THEN
-    combined := NEW.first_name;
+    BEGIN
+      IF (NEW._lc::jsonb ->> 'raw_full_name') = (NEW.first_name || ' ') THEN
+        combined := NEW.first_name || ' ';
+      ELSE
+        combined := NEW.first_name;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      combined := NEW.first_name;
+    END;
   ELSE
     combined := NEW.first_name || ' ' || NEW.last_name;
   END IF;

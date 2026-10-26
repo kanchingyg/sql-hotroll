@@ -84,6 +84,8 @@ export interface HotRollAttestationTelemetry {
   signCount?: number;
   /** `awaitingHardwarePrompt` property/member. */
   awaitingHardwarePrompt?: boolean;
+  /** Authenticator roles already credited toward quorum; each role counts at most once. */
+  countedHardwareRoles?: HardwareAuthenticatorModality[];
 }
 
 /** `HotRollTuiState` — exported SQ-HotRoll API symbol. */
@@ -337,6 +339,9 @@ export function createDefaultTuiState(
  * - `[P]` Promote rollout +25% (up to 100%)
  * - `[D]` Run / re-verify Dark-Canary shadow diffing (`1,000 / 1,000`)
  * - `[H]` Hold / Pause progressive rollout
+ * - `[K]` / `[F]` / `[M]` Hardware step-up (FIDO2 key / ThinkPad fprintd / current modality):
+ *   verifies an SSHSIG envelope and credits quorum once per authenticator role, capped at
+ *   `requiredQuorum`
  * - `[R]` Trigger `<50ms` instant O(1) rollback to `v1` with `0` data loss
  * - `[C]` Complete cutover (`100%` on `v2`), drop `_time_machine_delta`, truncate WAL to `0 KB`
  * - `[Q]` or `Ctrl+C` (`\u0003`) Quit interactive TUI loop
@@ -381,8 +386,12 @@ export function handleKeypress(
   }
 
   if (key === "k" || key === "f" || key === "m") {
+    // Loopback step-up: signs with an ephemeral in-process key to exercise the real verifier.
+    // A deployment feeds the armored envelope from `ssh-keygen -Y sign` instead.
     const modality: HardwareAuthenticatorModality =
-      key === "f"
+      key === "k"
+        ? "fido2-yubikey-sk"
+        : key === "f"
         ? "tpm2-fprintd-thinkpad"
         : state.attestation.hardwareModality ?? "fido2-yubikey-sk";
     const prevSignCount = state.attestation.signCount ?? 41;
@@ -424,14 +433,16 @@ export function handleKeypress(
         lastActionLog: `HW_AUTH_REJECTED: ${verRes.failureReason ?? "VERIFICATION_FAILED"}`,
       };
     }
-    const nextValidSigs = Math.min(
-      state.attestation.requiredQuorum,
-      state.attestation.validSignatures + 1
-    );
+    const counted = state.attestation.countedHardwareRoles ?? [];
+    const isNewRole = !counted.includes(modality);
+    const nextValidSigs = isNewRole
+      ? Math.min(state.attestation.requiredQuorum, state.attestation.validSignatures + 1)
+      : state.attestation.validSignatures;
     return {
       ...state,
       attestation: {
         ...state.attestation,
+        countedHardwareRoles: isNewRole ? [...counted, modality] : counted,
         hardwareModality: modality,
         ctapFlags: verRes.flags,
         signCount: verRes.counter,
@@ -442,7 +453,7 @@ export function handleKeypress(
             ? "OIDC+TPM2-FPRINTD"
             : "OIDC+FIDO2-SK",
       },
-      lastActionLog: `HW_AUTH_OK: Verified ${modality} [TOUCH YUBIKEY / SWIPE THINKPAD FPRINTD+TPM2 / PIV 9c] (UP=1 UV=1 flags=0x05 ctr=${verRes.counter}) -> DSSE ${nextValidSigs}/${state.attestation.requiredQuorum}`,
+      lastActionLog: `${isNewRole ? "HW_AUTH_OK" : "HW_AUTH_ROLE_ALREADY_COUNTED"}: Verified ${modality} [TOUCH YUBIKEY / SWIPE THINKPAD FPRINTD+TPM2 / PIV 9c] (UP=1 UV=1 flags=0x05 ctr=${verRes.counter}) -> DSSE ${nextValidSigs}/${state.attestation.requiredQuorum}`,
     };
   }
 
@@ -861,7 +872,22 @@ export function renderHotRollTuiFrame(
   );
   lines.push(botBorder);
 
-  return lines.join("\n");
+  const frame = lines.join("\n");
+  return options?.asciiOnly ? toSevenBitAscii(frame) : frame;
+}
+
+/** 1:1 glyph map, so every padded line keeps its exact visible width. */
+const ASCII_GLYPHS: Readonly<Record<string, string>> = {
+  "╭": "+", "╮": "+", "╰": "+", "╯": "+", "├": "+", "┤": "+",
+  "┏": "+", "┓": "+", "┗": "+", "┛": "+", "┳": "+", "┫": "+", "┣": "+",
+  "─": "-", "━": "=", "╸": "-", "╺": "-", "│": "|", "┃": "|",
+  "█": "#", "▓": "=", "░": ".", "▸": ">", "·": ".",
+  "▁": "_", "▂": ".", "▃": ",", "▄": "-", "▅": "=", "▆": "+", "▇": "*",
+};
+
+function toSevenBitAscii(frame: string): string {
+  // shortcut: unmapped non-ASCII becomes "?", extend ASCII_GLYPHS if a new glyph is rendered.
+  return frame.replace(/[^\x00-\x7f]/g, (ch) => ASCII_GLYPHS[ch] ?? "?");
 }
 
 // ---------------------------------------------------------------------------

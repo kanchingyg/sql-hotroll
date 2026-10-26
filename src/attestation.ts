@@ -11,12 +11,16 @@
 
 import {
   createHash,
+  createPublicKey,
   generateKeyPairSync,
   randomBytes,
   sign as cryptoSign,
   verify as cryptoVerify,
 } from "node:crypto";
-import type { SchemaEpoch } from "./core.ts";
+import {
+  canonicalizeJsonRfc8785 as canonicalizeRfc8785Jcs,
+  type SchemaEpoch,
+} from "./core.ts";
 
 /** Documentation for `IN_TOTO_STATEMENT_V1_TYPE`. */
 export const IN_TOTO_STATEMENT_V1_TYPE = "https://in-toto.io/Statement/v1";
@@ -193,38 +197,11 @@ export function generateFleetHardwareKeypair(params: {
 }
 
 /**
- * RFC 8785 JSON Canonicalization Scheme (JCS).
- * Deterministically serializes any JSON value by sorting object keys lexicographically
- * by UTF-16 code units and stripping all insignificant whitespace.
+ * RFC 8785 JSON Canonicalization Scheme (JCS), shared with `core.ts` so signed payloads have a
+ * single canonical form. Unsupported values (`bigint`, functions, symbols) throw instead of
+ * collapsing to `null`, which would make distinct statements digest identically.
  */
-export function canonicalizeRfc8785Jcs(value: unknown): string {
-  if (value === null || typeof value === "boolean") {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error("RFC 8785 JCS forbids NaN or Infinite numbers");
-    }
-    return Object.is(value, -0) ? "0" : JSON.stringify(value);
-  }
-  if (typeof value === "string") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalizeRfc8785Jcs(item)).join(",")}]`;
-  }
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    const sortedKeys = Object.keys(obj)
-      .filter((k) => obj[k] !== undefined)
-      .sort();
-    const props = sortedKeys.map(
-      (k) => `${JSON.stringify(k)}:${canonicalizeRfc8785Jcs(obj[k])}`
-    );
-    return `{${props.join(",")}}`;
-  }
-  return "null";
-}
+export { canonicalizeRfc8785Jcs };
 
 /**
  * Extracts a normalized structural SQL AST descriptor from raw SQL DDL so comments,
@@ -504,6 +481,7 @@ export function verifyDsseMigrationEnvelope(params: {
   }
 
   const verifiedSignerKids = new Set<string>();
+  const verifiedPublicKeys = new Set<string>();
   const verifiedSigners: Array<{
     kid: string;
     modality: FleetAuthenticatorModality;
@@ -518,14 +496,22 @@ export function verifyDsseMigrationEnvelope(params: {
       continue;
     }
     try {
+      const canonicalPubDerHex = createPublicKey(pubKey.publicKeyPem)
+        .export({ type: "spki", format: "der" })
+        .toString("hex");
       const ok = cryptoVerify(
         null,
         paeBuffer,
         pubKey.publicKeyPem,
         Buffer.from(sigEntry.sig, "base64url")
       );
-      if (ok && !verifiedSignerKids.has(pubKey.kid)) {
+      if (
+        ok &&
+        !verifiedSignerKids.has(pubKey.kid) &&
+        !verifiedPublicKeys.has(canonicalPubDerHex)
+      ) {
         verifiedSignerKids.add(pubKey.kid);
+        verifiedPublicKeys.add(canonicalPubDerHex);
         verifiedSigners.push({
           kid: pubKey.kid,
           modality: pubKey.modality,
@@ -555,6 +541,8 @@ export function verifyDsseMigrationEnvelope(params: {
     (h) => h.userPresenceVerified && h.biometricOrPinVerified
   );
   const hardwareQuorumMofNOk =
+    Number.isInteger(quorumRequired) && // fail closed on 0, negative, or NaN thresholds
+    quorumRequired >= 1 &&
     verifiedSigners.length >= quorumRequired &&
     (quorumRequired < 2 || hasHardwareUserPresence);
 

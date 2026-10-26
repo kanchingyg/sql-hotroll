@@ -94,7 +94,8 @@ export function extractCteScopeNames(sql: string): Set<string> {
   if (!/^WITH\b/i.test(trimmed)) {
     return ctes;
   }
-  const cteRegex = /\b(?:WITH(?:\s+RECURSIVE)?|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/gi;
+  const cteRegex =
+    /\b(?:WITH(?:\s+RECURSIVE)?|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*\([^)]*\))?\s+AS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(/gi;
   let match: RegExpExecArray | null;
   while ((match = cteRegex.exec(trimmed)) !== null) {
     ctes.add(match[1].toLowerCase());
@@ -120,6 +121,17 @@ export function stripLeadingSqlComments(sql: string): string {
   return out;
 }
 
+/** Words that can follow a table reference without being its implicit alias. */
+const SQL_CLAUSE_KEYWORDS: ReadonlySet<string> = new Set([
+  "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "OUTER", "ON", "USING",
+  "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT", "WINDOW",
+  "RETURNING", "SET", "VALUES", "FOR", "FETCH",
+]);
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Scoped Symbol-Table SQL AST Rewriter.
  * - Rewrites base table references `logicalTable` -> `${logicalTable}_v${epoch}`
@@ -142,38 +154,43 @@ export function rewriteSqlForEpoch(
   }
 
   const physicalTable = `${logicalTable}_v${epoch}`;
-  let rewritten = cleanSql;
+  const tbl = escapeRegExp(logicalTable);
 
-  // 1. Rewrite FROM <logicalTable> (preserve alias if not already followed by AS)
-  const fromRe = new RegExp(
-    `\\b(FROM|JOIN)\\s+${logicalTable}\\b(?!\\s+AS\\b)`,
-    "gi"
+  // Mask single-quoted literals so identifiers inside string data are never rewritten.
+  const literals: string[] = [];
+  let rewritten = cleanSql.replace(
+    /'(?:[^']|'')*'/g,
+    (lit) => `\u0000${literals.push(lit) - 1}\u0000`
   );
-  rewritten = rewritten.replace(fromRe, `$1 ${physicalTable} AS ${logicalTable}`);
 
-  // If already followed by AS <alias>, rewrite just the table name
-  const fromAliasedRe = new RegExp(
-    `\\b(FROM|JOIN)\\s+${logicalTable}(\\s+AS\\b)`,
-    "gi"
+  // 1. FROM/JOIN <logicalTable>: keep an explicit or implicit alias, otherwise alias back to the
+  //    logical name so qualified references (`orders.id`) keep resolving.
+  const fromRe = new RegExp(`\\b(FROM|JOIN)\\s+${tbl}\\b`, "gi");
+  rewritten = rewritten.replace(
+    fromRe,
+    (match: string, kw: string, offset: number, whole: string) => {
+      const alias = /^\s+(AS\s+)?([A-Za-z_]\w*)/i.exec(whole.slice(offset + match.length));
+      const aliased =
+        alias !== null &&
+        (alias[1] !== undefined || !SQL_CLAUSE_KEYWORDS.has(alias[2].toUpperCase()));
+      return aliased
+        ? `${kw} ${physicalTable}`
+        : `${kw} ${physicalTable} AS ${logicalTable}`;
+    }
   );
-  rewritten = rewritten.replace(fromAliasedRe, `$1 ${physicalTable}$2`);
 
-  // 2. Rewrite UPDATE <logicalTable> SET ...
-  const updateRe = new RegExp(`\\bUPDATE\\s+${logicalTable}\\b`, "gi");
-  rewritten = rewritten.replace(updateRe, `UPDATE ${physicalTable}`);
-
-  // 3. Rewrite INSERT INTO <logicalTable> / DELETE FROM <logicalTable>
-  const insertRe = new RegExp(`\\bINTO\\s+${logicalTable}\\b`, "gi");
-  rewritten = rewritten.replace(insertRe, `INTO ${physicalTable}`);
+  // 2. UPDATE <logicalTable> / INSERT INTO <logicalTable>
+  const dmlRe = new RegExp(`\\b(UPDATE|INTO)\\s+${tbl}\\b`, "gi");
+  rewritten = rewritten.replace(dmlRe, (_m: string, kw: string) => `${kw} ${physicalTable}`);
 
   if (opts?.injectRowVerIncrement && /^\s*UPDATE\b/i.test(rewritten)) {
-    if (!/\b_row_ver\s*=/i.test(rewritten)) {
-      rewritten = rewritten.replace(
-        /\bSET\s+/i,
-        "SET _row_ver = _row_ver + 1, "
-      );
+    // shortcut: only text before the first WHERE is scanned for a caller-set `_row_ver`, so a
+    // subselect WHERE inside SET can hide a later assignment; upgrade to a paren-aware scan then.
+    const setList = rewritten.split(/\bWHERE\b/i, 1)[0];
+    if (!/\b_row_ver\s*=/i.test(setList)) {
+      rewritten = rewritten.replace(/\bSET\s+/i, () => "SET _row_ver = _row_ver + 1, ");
     }
   }
 
-  return rewritten;
+  return rewritten.replace(/\u0000(\d+)\u0000/g, (_m: string, i: string) => literals[Number(i)]);
 }

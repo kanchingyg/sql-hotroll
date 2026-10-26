@@ -323,6 +323,8 @@ export function buildMigrationSignPayload(
 /**
  * Auto-detects enterprise fleet hardware authenticators available on the current host or
  * forwarded via `SSH_AUTH_SOCK`. Supports deterministic probing for unit/integration testing.
+ * `available` means the host capability is present (helper, DLL, or agent socket), not that an
+ * authenticator is plugged in or enrolled; `verifyOpenSshSkSignatureEnvelope` is the proof.
  */
 export function detectFleetAuthenticators(options?: {
   env?: Record<string, string | undefined>;
@@ -374,13 +376,11 @@ export function detectFleetAuthenticators(options?: {
       (checkPath("C:\\Windows\\System32\\WinBioDatabase") ||
         checkPath("C:\\Windows\\System32\\WinBioPlugIns") ||
         checkPath("C:\\Windows\\System32\\webauthn.dll"))) ||
-    checkPath("C:\\Windows\\System32\\webauthn.dll") ||
     Boolean(env.SSH_SK_PROVIDER?.toLowerCase().includes("winhello")) ||
     Boolean(env.HOTROLL_ASSUME_WINDOWS_HELLO === "1");
 
   const hasMacOsTouchId =
     (platform === "darwin" && checkPath("/usr/lib/pam/pam_tid.so.2")) ||
-    checkPath("/usr/lib/pam/pam_tid.so.2") ||
     Boolean(env.SSH_AUTH_SOCK?.includes("com.maxgoedjen.Secretive")) ||
     Boolean(env.HOTROLL_ASSUME_MACOS_TOUCHID === "1");
 
@@ -829,10 +829,12 @@ function reconstructNodePublicKey(parsed: ParsedOpenSshSigEnvelope): KeyObject {
 }
 
 /**
- * Cryptographically verifies an OpenSSH `SSHSIG` (`sk-ssh-ed25519@openssh.com`,
- * `sk-ecdsa-sha2-nistp256@openssh.com`, or `ssh-ed25519`) envelope AND enforces the
- * Red Team hardware invariants (`UP=0x01`, `UV=0x04`, monotonic `counter > lastSeenCounter`,
- * namespace binding, and anti-replay nonce consumption) that `ssh-keygen -Y verify` omits.
+ * Cryptographically verifies an OpenSSH `SSHSIG` (`sk-ssh-ed25519@openssh.com` or
+ * `sk-ecdsa-sha2-nistp256@openssh.com`) envelope. Software `ssh-ed25519` keys and
+ * public-key/signature-blob type mismatches are rejected (`KEY_TYPE_MISMATCH_OR_NON_SK_KEY`).
+ * Also enforces the Red Team hardware invariants (`UP=0x01`, `UV=0x04`, monotonic
+ * `counter > lastSeenCounter`, namespace binding, and anti-replay nonce consumption) that
+ * `ssh-keygen -Y verify` omits.
  */
 export function verifyOpenSshSkSignatureEnvelope(params: {
   armoredSignature: string;
@@ -942,23 +944,6 @@ export function verifyOpenSshSkSignatureEnvelope(params: {
     };
   }
 
-  if (
-    params.lastSeenCounter !== undefined &&
-    parsed.counter <= params.lastSeenCounter
-  ) {
-    return {
-      verified: false,
-      keyType: parsed.keyType,
-      application: parsed.application,
-      namespace: parsed.namespace,
-      flags: parsed.flags,
-      userPresence: parsed.userPresence,
-      userVerification: parsed.userVerification,
-      counter: parsed.counter,
-      failureReason: "SIGNATURE_COUNTER_REGRESSION_OR_CLONE",
-    };
-  }
-
   // Reconstruct PROTOCOL.sshsig Section 3 Signed Data
   const msgBuf =
     typeof params.message === "string"
@@ -1010,14 +995,8 @@ export function verifyOpenSshSkSignatureEnvelope(params: {
           ieeeSig
         );
       }
-    } else {
-      cryptoOk = cryptoVerify(
-        null,
-        sshsigSignedData,
-        pubKeyObj,
-        parsed.rawSignature
-      );
     }
+    // Non-sk key types are rejected above and never verified here: cryptoOk stays false.
   } catch {
     cryptoOk = false;
   }
@@ -1033,6 +1012,23 @@ export function verifyOpenSshSkSignatureEnvelope(params: {
       userVerification: parsed.userVerification,
       counter: parsed.counter,
       failureReason: "CRYPTOGRAPHIC_SIGNATURE_INVALID",
+    };
+  }
+
+  if (
+    params.lastSeenCounter !== undefined &&
+    parsed.counter <= params.lastSeenCounter
+  ) {
+    return {
+      verified: false,
+      keyType: parsed.keyType,
+      application: parsed.application,
+      namespace: parsed.namespace,
+      flags: parsed.flags,
+      userPresence: parsed.userPresence,
+      userVerification: parsed.userVerification,
+      counter: parsed.counter,
+      failureReason: "SIGNATURE_COUNTER_REGRESSION_OR_CLONE",
     };
   }
 

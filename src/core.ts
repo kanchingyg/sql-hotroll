@@ -218,8 +218,9 @@ export function parseCompositeToken(raw?: string | null): CompositeBookmarkToken
     return { bookmark: raw.trim() || "00000000", epoch: 1 };
   }
   const bookmark = raw.slice(0, atIdx).trim() || "00000000";
-  const parsedEpoch = Number.parseInt(raw.slice(atIdx + 1).trim(), 10);
-  const epoch = Number.isFinite(parsedEpoch) && parsedEpoch >= 1 ? parsedEpoch : 1;
+  const epochText = raw.slice(atIdx + 1).trim();
+  const parsedEpoch = /^\d+$/.test(epochText) ? Number(epochText) : Number.NaN;
+  const epoch = Number.isSafeInteger(parsedEpoch) && parsedEpoch >= 1 ? parsedEpoch : 1;
   return { bookmark, epoch };
 }
 
@@ -872,6 +873,16 @@ export function verifyMigrationDsseQuorum(
     };
   }
 
+  // Fail closed: `n < NaN` and `n < 0` are false, so a bad threshold would accept zero signatures.
+  if (!Number.isInteger(policy.minQuorum) || policy.minQuorum < 1) {
+    return {
+      verified: false,
+      reason: "INVALID_POLICY_MIN_QUORUM",
+      validSigners: [],
+      roles: [],
+    };
+  }
+
   let payloadBytes: Buffer;
   let statement: InTotoSlsaProvenanceStatement;
   try {
@@ -969,6 +980,7 @@ export function verifyMigrationDsseQuorum(
 
   const pae = encodeDssePae(envelope.payloadType, payloadBytes);
   const seenKeyIds = new Set<string>();
+  const seenPublicKeys = new Set<string>();
   const validSigners: string[] = [];
   const validRoles: AttestationSignerRole[] = [];
   let hardwareRejectReason: string | null = null;
@@ -982,6 +994,8 @@ export function verifyMigrationDsseQuorum(
 
     try {
       const pubKey = resolvePublicKey(trusted.publicKeyPemOrHex);
+      const canonicalPubDerHex = pubKey.export({ type: "spki", format: "der" }).toString("hex");
+      if (seenPublicKeys.has(canonicalPubDerHex)) continue;
       const sigBuf = Buffer.from(sigEntry.sig, "base64url");
       const toVerify = encodeHardwareBoundPae(pae, sigEntry.hardwareAssertion);
       const ok = cryptoVerify(null, toVerify, pubKey, sigBuf);
@@ -1016,6 +1030,7 @@ export function verifyMigrationDsseQuorum(
       }
 
       seenKeyIds.add(sigEntry.keyid);
+      seenPublicKeys.add(canonicalPubDerHex);
       validSigners.push(sigEntry.keyid);
       validRoles.push(trusted.role);
     } catch {
