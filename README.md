@@ -1,7 +1,28 @@
-# SQ-HotRoll (`sql-hotroll`): Session-Quiescence-Gated Progressive Schema Evolution
+# sql-hotroll
 
-**Author:** Augusto Cerrutti (`<augustocerruttisatto@gmail.com>`)  
+[![ci](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml/badge.svg)](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml)
+[![JSR](https://jsr.io/badges/@kanchingyg/hotroll)](https://jsr.io/@kanchingyg/hotroll)
+[![JSR Score](https://jsr.io/badges/@kanchingyg/hotroll/score)](https://jsr.io/@kanchingyg/hotroll/score)
+[![Runtime](https://img.shields.io/badge/runtime-Workers_%7C_Bun_%7C_Deno-f9f1e1)](https://github.com/kanchingyg/sql-hotroll)
+[![SQL](https://img.shields.io/badge/SQL-D1_%7C_SQLite_%7C_PostgreSQL-F6821F)](https://github.com/kanchingyg/sql-hotroll)
+[![license](https://img.shields.io/github/license/kanchingyg/sql-hotroll)](https://github.com/kanchingyg/sql-hotroll/blob/HEAD/LICENSE)
+
+**SQ-HotRoll** — session-quiescence-gated progressive schema evolution with bijective inline complement lenses and DEC Mode 2026 TUI for Cloudflare D1, SQLite, and PostgreSQL 17.
+
+**Author:** Augusto Cerrutti (`augustocerruttisatto@gmail.com`)  
 **Target Runtimes:** Cloudflare Workers & D1, Cloudflare Hyperdrive, `bun:sqlite`, PostgreSQL 17.11, Drizzle ORM, Kysely, Browser SPAs, Electron Multi-Window Apps, Mobile In-App WebViews, Kubernetes `RollingUpdate` Pods, and Firecracker MicroVMs.
+
+## Install
+
+[JSR](https://jsr.io/@kanchingyg/hotroll) (published as `@kanchingyg/hotroll`):
+
+```bash
+bunx jsr add @kanchingyg/hotroll
+npx jsr add @kanchingyg/hotroll
+deno add jsr:@kanchingyg/hotroll
+```
+
+Not published to npm yet — install from JSR or clone this repo.
 
 ## Overview
 
