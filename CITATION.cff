@@ -6,6 +6,8 @@ authors:
   - family-names: "Cerrutti"
     given-names: "Augusto"
     affiliation: "Independent Systems Researcher"
+    orcid: "https://orcid.org/0009-0005-7279-8319"
+doi: "10.5281/zenodo.23675281"
 version: "1.0.0"
 date-released: "2026-10-26"
 license: "MIT"
