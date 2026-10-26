@@ -1,33 +1,12 @@
-﻿/**
+/**
  * Fleet hardware authenticators: YubiKey FIDO2, TPM2, Windows Hello, Touch ID, and PIV.
  *
  * @example
- * `	s
+ * ```ts
  * import * as mod from "@kanchingyg/hotroll/hardware-auth";
- * `
+ * ```
  *
  * @module
- */
-/**
- * @module hardware-auth
- * @description Enterprise Fleet Hardware Authenticator Auto-Detection, Policy Engine,
- * and OpenSSH `PROTOCOL.sshsig` + `PROTOCOL.u2f` (`sk-ssh-ed25519@openssh.com` &
- * `sk-ecdsa-sha2-nistp256@openssh.com`) Binary Envelope Verifier for `sql-hotroll`.
- *
- * Covers the 6 enterprise fleet hardware authentication methods:
- *  1. `'fido2-sk'`: OpenSSH 8.2+ FIDO2/CTAP2 Security Keys (`sk-ssh-ed25519@openssh.com`,
- *     `sk-ecdsa-sha2-nistp256@openssh.com`) via `ssh-sk-helper` / `libfido2` & `SSH_AUTH_SOCK`.
- *  2. `'thinkpad-fprintd'`: ThinkPad / Enterprise Linux Match-on-Chip Fingerprint Sensors
- *     (Synaptics / Goodix / Elan) via D-Bus `net.reactivated.Fprint` (`/net/reactivated/Fprint/Device/0`)
- *     paired with TPM 2.0 (`/dev/tpmrm0`) or `SSHSIG` cryptographic co-signing.
- *  3. `'tpm2-pkcs11'`: Enterprise Linux & Windows Discrete TPM 2.0 (Nuvoton / STMicro / Infineon)
- *     via `/dev/tpmrm0` and `libtpm2_pkcs11.so` (`ssh-keygen -D libtpm2_pkcs11.so.1`).
- *  4. `'windows-hello'`: Windows 11 Enterprise `Windows Hello for Business` (`webauthn.dll`
- *     `WebAuthNAuthenticatorGetAssertion` + `Microsoft Passport Key Storage Provider` + `ssh-sk-helper.exe`).
- *  5. `'macos-touchid'`: macOS Apple Silicon / T2 Secure Enclave (`kSecAttrTokenIDSecureEnclave` P-256
- *     + `LAContext.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics)` + `Secretive` `SSH_AUTH_SOCK`).
- *  6. `'piv-pkcs11'`: Enterprise Smartcards & NIST SP 800-73-4 PIV / DoD CAC / YubiKey PIV
- *     Slot `9a` (PIV Auth) & Slot `9c` (Digital Signature, PIN/touch per sign) via `libykcs11.so` / `opensc-pkcs11.so`.
  */
 
 import {

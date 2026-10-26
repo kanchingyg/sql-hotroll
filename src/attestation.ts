@@ -1,27 +1,12 @@
-﻿/**
+/**
  * SLSA DSSE envelopes, RFC 8785 JCS digests, and fleet hardware authenticator attestation.
  *
  * @example
- * `	s
+ * ```ts
  * import * as mod from "@kanchingyg/hotroll/attestation";
- * `
+ * ```
  *
  * @module
- */
-/**
- * @module attestation
- * @description Enterprise & FOSS Web-Infrastructure Cryptographic Provenance, Asymmetric Edge Verification,
- * and Fleet Hardware Authenticator Quorum for `sql-hotroll`:
- *  1. RFC 8785 (JCS — JSON Canonicalization Scheme) Canonical SQL AST & Bidirectional Lens Structural Digest
- *  2. `in-toto` v1.0 / SLSA v1.0 Provenance inside a DSSE (Dead Simple Signing Envelope, PAE encoding)
- *  3. Keyless CI OIDC / SPIFFE SVID Workload Identity + M-of-N Enterprise Fleet Hardware Authenticator Quorum:
- *     - Physical Security Keys: FIDO2 / CTAP2 / YubiKey / SoloKey (`sk-ssh-ed25519@openssh.com`, `libfido2`)
- *     - ThinkPad & Enterprise Linux Fingerprint Readers (`fprintd` Synaptics/Goodix/Elan match-on-chip + PAM + TPM 2.0 `/dev/tpmrm0`)
- *     - Windows Enterprise Fleet (`Windows Hello for Business` / TPM 2.0 NGC / `WinBio` fingerprint & IR)
- *     - macOS Fleet (`Touch ID` Secure Enclave via `LocalAuthentication` / `secretive`)
- *     - Enterprise Smartcards & Bastion SSH Forwarding (`PIV / CAC / PKCS#11` + `SSH_AUTH_SOCK`)
- *  4. Asymmetric `PASETO v4.public` (Ed25519 RFC 8032 + JWKS `kid`) Edge Epoch Tokens — CDN POPs and K8s pods
- *     hold ONLY public verification keys (`v4.public`) and NEVER hold a shared HMAC secret.
  */
 
 import {

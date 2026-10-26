@@ -1,13 +1,14 @@
-﻿/**
+/**
  * Scoped symbol-table SQL AST rewriter for epoch-aware FROM rewrite and DDL tier classification.
  *
  * @example
- * `	s
+ * ```ts
  * import * as mod from "@kanchingyg/hotroll/ast-rewriter";
- * `
+ * ```
  *
  * @module
  */
+
 /**
  * SQ-HotRoll Scoped Symbol-Table SQL AST Rewriter & Wave 2 3-Tier DDL Migration Classifier.
  * - Rewrites logical table identifiers (`orders` -> `orders_v2 AS orders`) while preserving

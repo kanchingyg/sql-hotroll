@@ -1,13 +1,14 @@
-﻿/**
+/**
  * Cloudflare D1 / SQLite adapter with last_insert_rowid dual-insert and monotonic _row_ver triggers.
  *
  * @example
- * `	s
+ * ```ts
  * import * as mod from "@kanchingyg/hotroll/d1-adapter";
- * `
+ * ```
  *
  * @module
  */
+
 /**
  * SQ-HotRoll Cloudflare D1 / SQLite WAL Storage Adapter (`D1StorageAdapter`).
  * Implements:

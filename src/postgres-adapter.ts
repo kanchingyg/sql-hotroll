@@ -1,13 +1,14 @@
-﻿/**
+/**
  * PostgreSQL 17 adapter with pg_trigger_depth guards and DDL lock-hazard classification.
  *
  * @example
- * `	s
+ * ```ts
  * import * as mod from "@kanchingyg/hotroll/postgres-adapter";
- * `
+ * ```
  *
  * @module
  */
+
 /**
  * SQ-HotRoll PostgreSQL 17 Storage Adapter (`PostgresStorageAdapter`).
  * Implements:

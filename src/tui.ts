@@ -1,30 +1,12 @@
-﻿/**
+/**
  * DEC Mode 2026 differential TUI, Braille sparklines, and CI-gate provenance panels.
  *
  * @example
- * `	s
+ * ```ts
  * import * as mod from "@kanchingyg/hotroll/tui";
- * `
+ * ```
  *
  * @module
- */
-/**
- * @module tui
- * @description Zero-dependency interactive ASCII/Unicode Terminal UI (`hotroll watch`, `hotroll apply`, `hotroll rollback`)
- * modeled after Oh My Pi (`omp`), OpenAI Codex CLI, Charm/Lipgloss, and btop/lazygit.
- * Features crisp Unicode box-drawing frames (`╭─╮│╰─╯`), heavy-box ASCII art header,
- * `█▓▒░` cohort drain & urgency split gauges, `▁▂▃▄▅▆▇█` latency sparklines,
- * Dark-Canary verification meters, and a single-keystroke `<50ms` rollback command bar
- * with graceful `NO_COLOR` / non-TTY fallback.
- *
- * @example
- * ```ts
- * import { createDefaultTuiState, handleKeypress, renderHotRollTuiFrame } from "./tui.ts";
- *
- * let state = createDefaultTuiState({ tableName: "orders" });
- * console.log(renderHotRollTuiFrame(state, { color: true }));
- * state = handleKeypress(state, "p");
- * ```
  */
 
 import type { HardwareAuthenticatorModality, MigrationTier, SchemaEpoch } from "./core.ts";
