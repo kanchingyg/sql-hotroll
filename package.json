@@ -1,0 +1,54 @@
+{
+  "name": "sql-hotroll",
+  "version": "0.1.0",
+  "description": "Session-quiescence-gated progressive SQL schema evolution with bijective inline complement lenses, zero-trust SLSA v1.0 DSSE hardware quorum, and DEC Mode 2026 TUI for Cloudflare D1, SQLite, and PostgreSQL 17.",
+  "license": "MIT",
+  "author": "Augusto Cerrutti <augustocerruttisatto@gmail.com>",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core.ts",
+    "./lenses": "./src/lenses.ts",
+    "./ast-rewriter": "./src/ast-rewriter.ts",
+    "./d1-adapter": "./src/d1-adapter.ts",
+    "./postgres-adapter": "./src/postgres-adapter.ts",
+    "./client-quiescence": "./src/client-quiescence.ts",
+    "./attestation": "./src/attestation.ts",
+    "./crypto-handshake": "./src/crypto-handshake.ts",
+    "./hardware-auth": "./src/hardware-auth.ts",
+    "./tui": "./src/tui.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CREDITS.md",
+    "CITATION.cff",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kanchingyg/sql-hotroll.git"
+  },
+  "keywords": [
+    "cloudflare-d1",
+    "sqlite",
+    "postgresql",
+    "schema-migration",
+    "bidirectional-lenses",
+    "session-quiescence",
+    "zero-downtime",
+    "slsa",
+    "fido2",
+    "tui"
+  ],
+  "devDependencies": {
+    "@types/bun": "^1.2.4",
+    "typescript": "^5.7.3"
+  }
+}

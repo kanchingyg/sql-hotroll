@@ -1,0 +1,29 @@
+{
+  "name": "@kanchingyg/hotroll",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core.ts",
+    "./lenses": "./src/lenses.ts",
+    "./ast-rewriter": "./src/ast-rewriter.ts",
+    "./d1-adapter": "./src/d1-adapter.ts",
+    "./postgres-adapter": "./src/postgres-adapter.ts",
+    "./client-quiescence": "./src/client-quiescence.ts",
+    "./attestation": "./src/attestation.ts",
+    "./crypto-handshake": "./src/crypto-handshake.ts",
+    "./hardware-auth": "./src/hardware-auth.ts",
+    "./tui": "./src/tui.ts"
+  },
+  "publish": {
+    "include": [
+      "src/**/*.ts",
+      "README.md",
+      "CREDITS.md",
+      "CITATION.cff",
+      "LICENSE",
+      "jsr.json",
+      "package.json"
+    ]
+  }
+}

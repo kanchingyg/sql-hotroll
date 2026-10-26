@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use SQ-HotRoll or its formal verification and benchmark artifacts, please cite this work."
+title: "Session-Quiescence-Gated Progressive Schema Evolution with Inline Complement Lenses for Stateful Edge and Relational Databases"
+type: software
+authors:
+  - family-names: "Cerrutti"
+    given-names: "Augusto"
+    affiliation: "Independent Systems Researcher"
+version: "1.0.0"
+date-released: "2026-10-26"
+license: "MIT"
+keywords:
+  - "online schema evolution"
+  - "bidirectional lenses"
+  - "Cloudflare D1"
+  - "PostgreSQL"
+  - "session quiescence"
+  - "formal verification"
+  - "Z3 SMT"
+  - "Spin model checking"
