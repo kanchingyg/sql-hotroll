@@ -24,6 +24,7 @@
  */
 
 import {
+  hasNoActiveStreamsOrMultipartLeases,
   isClientQuiescent,
   type HotRollContext,
   type SchemaEpoch,
@@ -44,7 +45,8 @@ export interface QuiescenceSwapResult {
     | "WEBVIEW_HOST_BRIDGE_FREEZE"
     | "CAPPED_BY_HOST_BRIDGE_VERSION"
     | "NO_PENDING_UPGRADE"
-    | "IN_FLIGHT_REQUESTS_BLOCKED";
+    | "IN_FLIGHT_REQUESTS_BLOCKED"
+    | "ACTIVE_STREAM_OR_MULTIPART_LEASE_BLOCKED";
 }
 
 /** Documentation for `QuiescenceDetector`. */
@@ -53,6 +55,8 @@ export class QuiescenceDetector {
   private pendingUpgradeEpoch: SchemaEpoch | null = null;
   private inFlightRequests = 0;
   private dirtyFormFields = 0;
+  private activeStreams = 0;
+  private activeMultipartLeases = new Set<string>();
   private idleDurationMs = 0;
   private visibilityHidden = false;
   private keystrokeDuringPrewarm = false;
@@ -96,6 +100,46 @@ export class QuiescenceDetector {
 
   public endRequest(): void {
     this.inFlightRequests = Math.max(0, this.inFlightRequests - 1);
+  }
+
+  /**
+   * CDN-H1 Guard: Tracks active ReadableStream / HTTP 206 Range / ServiceWorker downloads (S_streams(s)).
+   */
+  public beginStream(): void {
+    this.activeStreams += 1;
+  }
+
+  public endStream(): void {
+    this.activeStreams = Math.max(0, this.activeStreams - 1);
+  }
+
+  public getActiveStreams(): number {
+    return this.activeStreams;
+  }
+
+  /**
+   * CDN-H1/H4 Guard: Tracks active S3/R2 multipart or tus resumable upload leases (L_multipart(s)).
+   */
+  public acquireMultipartLease(leaseId: string): void {
+    if (leaseId && leaseId.trim().length > 0) {
+      this.activeMultipartLeases.add(leaseId.trim());
+    }
+  }
+
+  public releaseMultipartLease(leaseId: string): void {
+    this.activeMultipartLeases.delete(leaseId.trim());
+  }
+
+  public getActiveMultipartLeases(): string[] {
+    return Array.from(this.activeMultipartLeases);
+  }
+
+  /** Delegates stream/multipart gating to `hasNoActiveStreamsOrMultipartLeases` in core. */
+  private streamsAndMultipartClear(): boolean {
+    return hasNoActiveStreamsOrMultipartLeases({
+      activeStreams: this.activeStreams,
+      activeMultipartLeases: Array.from(this.activeMultipartLeases),
+    } as HotRollContext);
   }
 
   public setDirtyFormFields(count: number): void {
@@ -163,8 +207,19 @@ export class QuiescenceDetector {
       idleSeconds: Math.floor(this.idleDurationMs / 1000),
       dirtyFormInputs: this.dirtyFormFields,
       inFlightUserMutations: this.inFlightRequests,
+      activeStreams: this.activeStreams,
+      activeMultipartLeases: Array.from(this.activeMultipartLeases),
       preloadReady: !this.keystrokeDuringPrewarm,
     };
+
+    if (!this.streamsAndMultipartClear()) {
+      return {
+        upgraded: false,
+        previousEpoch: prev,
+        activeEpoch: prev,
+        reason: "ACTIVE_STREAM_OR_MULTIPART_LEASE_BLOCKED",
+      };
+    }
 
     if (this.keystrokeDuringPrewarm || !isClientQuiescent(ctx)) {
       return {
@@ -202,6 +257,14 @@ export class QuiescenceDetector {
         reason: "NO_PENDING_UPGRADE",
       };
     }
+    if (!this.streamsAndMultipartClear()) {
+      return {
+        upgraded: false,
+        previousEpoch: prev,
+        activeEpoch: prev,
+        reason: "ACTIVE_STREAM_OR_MULTIPART_LEASE_BLOCKED",
+      };
+    }
     if (this.inFlightRequests > 0 || this.dirtyFormFields > 0) {
       return {
         upgraded: false,
@@ -234,6 +297,14 @@ export class QuiescenceDetector {
         previousEpoch: prev,
         activeEpoch: prev,
         reason: "NO_PENDING_UPGRADE",
+      };
+    }
+    if (!this.streamsAndMultipartClear()) {
+      return {
+        upgraded: false,
+        previousEpoch: prev,
+        activeEpoch: prev,
+        reason: "ACTIVE_STREAM_OR_MULTIPART_LEASE_BLOCKED",
       };
     }
     if (this.inFlightRequests > 0) {
@@ -270,6 +341,14 @@ export class QuiescenceDetector {
         previousEpoch: prev,
         activeEpoch: prev,
         reason: "NO_PENDING_UPGRADE",
+      };
+    }
+    if (!this.streamsAndMultipartClear()) {
+      return {
+        upgraded: false,
+        previousEpoch: prev,
+        activeEpoch: prev,
+        reason: "ACTIVE_STREAM_OR_MULTIPART_LEASE_BLOCKED",
       };
     }
     if (this.inFlightRequests > 0 || this.dirtyFormFields > 0) {
@@ -319,6 +398,14 @@ export class QuiescenceDetector {
         previousEpoch: prev,
         activeEpoch: prev,
         reason: "NO_PENDING_UPGRADE",
+      };
+    }
+    if (!this.streamsAndMultipartClear()) {
+      return {
+        upgraded: false,
+        previousEpoch: prev,
+        activeEpoch: prev,
+        reason: "ACTIVE_STREAM_OR_MULTIPART_LEASE_BLOCKED",
       };
     }
     if (this.inFlightRequests > 0 || this.dirtyFormFields > 0) {

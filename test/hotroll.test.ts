@@ -58,6 +58,8 @@ import {
   generatePostgresBidirectionalTriggersSql,
 } from "../src/postgres-adapter.ts";
 import { QuiescenceDetector } from "../src/client-quiescence.ts";
+import { mintStreamLease, verifyStreamLease } from "../src/cdn-range-gate.ts";
+import { compilePolyglotSqlSchema } from "../src/polyglot-sql.ts";
 
 const LIVE_PG_URL =
   process.env.HOTROLL_PG_URL ?? "postgres://box@localhost:5432/postgres";
@@ -295,6 +297,31 @@ describe("SQ-HotRoll Core Engine, Lenses, AST Rewriter, D1 & PostgreSQL 17 Adapt
     expect(rowV2.billing_meta).toBe('{"tax_exempt":true}');
     expect(rowV2._row_ver).toBe(2);
     d1.db.close();
+  });
+
+  test("mintStreamLease/verifyStreamLease: fileId with dots survives base64url framing", () => {
+    const secret = "unit-test-lease-secret";
+    const nowMs = 1_700_000_000_000;
+    const claims = {
+      fileId: "dump.v1.parquet",
+      contentHash: "abcdef0123456789abcdef0123456789",
+      epoch: 2,
+      repVer: 1,
+      bookmark: "offset.chunk.9",
+      expiresAtMs: nowMs + 60_000,
+    };
+    const token = mintStreamLease(claims, secret);
+    expect(token.split(".").length).toBe(2);
+    const verified = verifyStreamLease(token, secret, nowMs, "dump.v1.parquet");
+    expect(verified).toEqual(claims);
+    expect(verifyStreamLease(token, secret, nowMs + 120_000)).toBeNull();
+  });
+
+  test("compilePolyglotSqlSchema is exported from polyglot-sql module", () => {
+    const ddl = compilePolyglotSqlSchema();
+    expect(ddl).toContain("files_v1");
+    expect(ddl).toContain("files_v2");
+    expect(ddl).toContain("trg_files_v1_ins");
   });
 
   test("QuiescenceDetector: multi-tab isolation, CAS input-abort on keystroke/dirty form, and <50ms instant rollback", () => {

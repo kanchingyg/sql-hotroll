@@ -1,0 +1,66 @@
+{
+  "suite": "SQ-HotRoll Provider-Physics & Multi-PoP CDN Simulator",
+  "allInvariantsPassed": true,
+  "totalElapsedMs": 857.75,
+  "cdnSimulator": {
+    "quotientSlices": 3,
+    "quotientSliceBytes": 4096,
+    "popsTested": [
+      "GRU",
+      "EZE",
+      "IAD"
+    ],
+    "i1StreamQuiescenceBlockedMidStream": true,
+    "i1StreamQuiescencePromotedAfterFinish": true,
+    "i2NaiveSplicedCorrupted": true,
+    "i2SqHotRollBitIdentical": true,
+    "i3UnpartitionedCachePoisoned": true,
+    "i3TwoTierCacheZeroPoisoning": true,
+    "i3ManifestVary": "Range, X-SQ-Schema-Epoch",
+    "i3BlobVary": "Range",
+    "i4MultipartPartsCompleted": true,
+    "i6StreamLeaseSurvived45MinDownload": true
+  },
+  "polyglotTargets": {
+    "c": {
+      "lang": "c",
+      "driver": "libsqlite3-3.53.1",
+      "naive_step_rc": 1,
+      "naive_reset_rc": 17,
+      "naive_sqlite_schema_17": true,
+      "hotroll_execs": 40,
+      "hotroll_errors": 0,
+      "lc_preserved": true,
+      "execMs": 97.99
+    },
+    "rust": {
+      "lang": "rust",
+      "driver": "rustc-sqlite3-ffi",
+      "naive_reset_rc": 17,
+      "naive_sqlite_schema_17": true,
+      "hotroll_execs": 40,
+      "hotroll_errors": 0,
+      "lc_preserved": true,
+      "execMs": 180.18
+    },
+    "php": {
+      "lang": "php",
+      "driver": "pdo_sqlite-8.5.12",
+      "naive_view_swap_failed": true,
+      "hotroll_execs": 40,
+      "hotroll_errors": 0,
+      "lc_preserved": true,
+      "execMs": 69.05
+    }
+  },
+  "walCheckpointTruncate": {
+    "busy": 0,
+    "logFrames": 0,
+    "checkpointedFrames": 0,
+    "pinnedWalBytesAfterTruncate": 0
+  },
+  "synchronizedRows": {
+    "files_v1": 3,
+    "files_v2": 3
+  }
+}

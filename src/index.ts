@@ -51,3 +51,5 @@ export {
 } from "./attestation.ts";
 export * from "./hardware-auth.ts";
 export * from "./tui.ts";
+export * from "./cdn-range-gate.ts";
+export { compilePolyglotSqlSchema } from "./polyglot-sql.ts";

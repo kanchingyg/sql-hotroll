@@ -18,7 +18,9 @@
     "./attestation": "./src/attestation.ts",
     "./crypto-handshake": "./src/crypto-handshake.ts",
     "./hardware-auth": "./src/hardware-auth.ts",
-    "./tui": "./src/tui.ts"
+    "./tui": "./src/tui.ts",
+    "./cdn-range-gate": "./src/cdn-range-gate.ts",
+    "./polyglot-sql": "./src/polyglot-sql.ts"
   },
   "files": [
     "src",
@@ -29,11 +31,12 @@
   ],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:physics": "bun run testbeds/run-all.ts"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kanchingyg/sql-hotroll.git"
+    "url": "git+https://github.com/kanchingyg/sql-hotroll.git"
   },
   "keywords": [
     "cloudflare-d1",

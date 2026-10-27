@@ -101,6 +101,8 @@ export interface HotRollContext {
   inFlightUserMutations: number;
   preloadReady: boolean;
   highWaterMarkEpoch?: SchemaEpoch;
+  activeStreams?: number; // CDN-H1: in-flight media / byte-range streams
+  activeMultipartLeases?: string[]; // CDN-H1: pinned multipart upload lease ids
 }
 
 /** Documentation for `HotRollSystemState`. */
@@ -281,6 +283,14 @@ export function classifyUrgency(
  *  2. SPA / Streaming Idle Quiescence: `idle >= 90s` + `inFlight == 0` + `dirtyForms == 0` (`AbortController` CAS)
  *  3. Explicit Transaction / Device Checkpoint Boundary (`X-SQ-Checkpoint: ready` with 0 in-flight mutations)
  */
+/**
+ * True when no byte-range streams or multipart leases are active on `ctx`.
+ * Undefined or empty values are treated as none.
+ */
+export function hasNoActiveStreamsOrMultipartLeases(ctx: HotRollContext): boolean {
+  return (ctx.activeStreams ?? 0) === 0 && (ctx.activeMultipartLeases?.length ?? 0) === 0;
+}
+
 /** Documentation for `isClientQuiescent`. */
 export function isClientQuiescent(ctx: HotRollContext): boolean {
   if (ctx.secFetchMode === "navigate" || ctx.quiescenceSurface === "web-navigate") {

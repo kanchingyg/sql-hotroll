@@ -1,0 +1,138 @@
+pan: ltl formula safety_no_lost_writes
+
+(Spin Version 6.5.2 -- 6 December 2019)
+	+ Partial Order Reduction
+
+Full statespace search for:
+	never claim         	+ (safety_no_lost_writes)
+	assertion violations	+ (if within scope of claim)
+	acceptance   cycles 	+ (fairness disabled)
+	invalid end states	- (disabled by never claim)
+
+State-vector 60 byte, depth reached 48, errors: 0
+      549 states, stored
+      434 states, matched
+      983 transitions (= stored+matched)
+      264 atomic steps
+hash conflicts:         0 (resolved)
+
+Stats on memory usage (in Megabytes):
+    0.046	equivalent memory usage for states (stored*(State-vector + overhead))
+    0.273	actual memory usage for states
+  128.000	memory used for hash table (-w24)
+    0.534	memory used for DFS stack (-m10000)
+  128.730	total actual memory usage
+
+
+unreached in proctype MigratingSession
+	hot_roll_cutover.pml:40, state 3, "rev_v1 = rev_v2"
+	hot_roll_cutover.pml:62, state 36, "rev_v2 = rev_v1"
+	hot_roll_cutover.pml:40, state 53, "rev_v1 = rev_v2"
+	(3 of 74 states)
+unreached in proctype ConcurrentCohortV2Writer
+	(0 of 18 states)
+unreached in proctype RollbackController
+	hot_roll_cutover.pml:122, state 3, "rev_v1 = rev_v2"
+	(1 of 14 states)
+unreached in init
+	hot_roll_cutover.pml:143, state 11, "rev_v1 = rev_v2"
+	(1 of 22 states)
+unreached in claim safety_no_lost_writes
+	_spin_nvr.tmp:8, state 10, "-end-"
+	(1 of 10 states)
+unreached in claim session_monotonicity_http200
+	_spin_nvr.tmp:17, state 10, "-end-"
+	(1 of 10 states)
+unreached in claim zero_loss_rollback
+	_spin_nvr.tmp:26, state 10, "-end-"
+	(1 of 10 states)
+
+pan: elapsed time 0 seconds
+pan: ltl formula session_monotonicity_http200
+
+(Spin Version 6.5.2 -- 6 December 2019)
+	+ Partial Order Reduction
+
+Full statespace search for:
+	never claim         	+ (session_monotonicity_http200)
+	assertion violations	+ (if within scope of claim)
+	acceptance   cycles 	+ (fairness disabled)
+	invalid end states	- (disabled by never claim)
+
+State-vector 60 byte, depth reached 48, errors: 0
+      549 states, stored
+      434 states, matched
+      983 transitions (= stored+matched)
+      264 atomic steps
+hash conflicts:         0 (resolved)
+
+Stats on memory usage (in Megabytes):
+    0.046	equivalent memory usage for states (stored*(State-vector + overhead))
+    0.273	actual memory usage for states
+  128.000	memory used for hash table (-w24)
+    0.534	memory used for DFS stack (-m10000)
+  128.730	total actual memory usage
+
+
+unreached in proctype MigratingSession
+	hot_roll_cutover.pml:40, state 3, "rev_v1 = rev_v2"
+	hot_roll_cutover.pml:62, state 36, "rev_v2 = rev_v1"
+	hot_roll_cutover.pml:40, state 53, "rev_v1 = rev_v2"
+	(3 of 74 states)
+unreached in proctype ConcurrentCohortV2Writer
+	(0 of 18 states)
+unreached in proctype RollbackController
+	hot_roll_cutover.pml:122, state 3, "rev_v1 = rev_v2"
+	(1 of 14 states)
+unreached in init
+	hot_roll_cutover.pml:143, state 11, "rev_v1 = rev_v2"
+	(1 of 22 states)
+unreached in claim session_monotonicity_http200
+	_spin_nvr.tmp:17, state 10, "-end-"
+	(1 of 10 states)
+
+pan: elapsed time 0 seconds
+pan: ltl formula zero_loss_rollback
+
+(Spin Version 6.5.2 -- 6 December 2019)
+	+ Partial Order Reduction
+
+Full statespace search for:
+	never claim         	+ (zero_loss_rollback)
+	assertion violations	+ (if within scope of claim)
+	acceptance   cycles 	+ (fairness disabled)
+	invalid end states	- (disabled by never claim)
+
+State-vector 60 byte, depth reached 48, errors: 0
+      549 states, stored
+      434 states, matched
+      983 transitions (= stored+matched)
+      264 atomic steps
+hash conflicts:         0 (resolved)
+
+Stats on memory usage (in Megabytes):
+    0.046	equivalent memory usage for states (stored*(State-vector + overhead))
+    0.273	actual memory usage for states
+  128.000	memory used for hash table (-w24)
+    0.534	memory used for DFS stack (-m10000)
+  128.730	total actual memory usage
+
+
+unreached in proctype MigratingSession
+	hot_roll_cutover.pml:40, state 3, "rev_v1 = rev_v2"
+	hot_roll_cutover.pml:62, state 36, "rev_v2 = rev_v1"
+	hot_roll_cutover.pml:40, state 53, "rev_v1 = rev_v2"
+	(3 of 74 states)
+unreached in proctype ConcurrentCohortV2Writer
+	(0 of 18 states)
+unreached in proctype RollbackController
+	hot_roll_cutover.pml:122, state 3, "rev_v1 = rev_v2"
+	(1 of 14 states)
+unreached in init
+	hot_roll_cutover.pml:143, state 11, "rev_v1 = rev_v2"
+	(1 of 22 states)
+unreached in claim zero_loss_rollback
+	_spin_nvr.tmp:26, state 10, "-end-"
+	(1 of 10 states)
+
+pan: elapsed time 0 seconds

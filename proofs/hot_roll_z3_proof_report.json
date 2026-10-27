@@ -1,0 +1,71 @@
+{
+  "z3_version": "5.3.2",
+  "total_theorems": 9,
+  "all_theorems_verified_unsat": true,
+  "total_elapsed_ms": 36.398,
+  "theorems": [
+    {
+      "theorem_id": "THEOREM_1",
+      "name": "Zero Lost Writes & Split-Brain Freedom under D1 db.batch() / Trigger Dual-Write & Guarded Backfill",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 19.445
+    },
+    {
+      "theorem_id": "THEOREM_2",
+      "name": "Causal Bookmark + Schema Epoch Continuity (<d1_bookmark>@<schema_epoch>) across HTTP 200 Reloads",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 2.107
+    },
+    {
+      "theorem_id": "THEOREM_3",
+      "name": "Multi-Tab Isolation & Cross-Tab Write Visibility under Hybrid Header + SSR Cookie Epoch Binding",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 2.086
+    },
+    {
+      "theorem_id": "THEOREM_4",
+      "name": "Lossless O(1) Single-Flag Rollback (v2 -> v1) & Roll-Forward Reconstruction with Inline Complement Column (_lc)",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 2.18
+    },
+    {
+      "theorem_id": "THEOREM_5",
+      "name": "Cross-Schema Time Machine Compositional Lens Chain (v1 <-> v2 <-> v3) & Composable CohortSelector Policy Safety",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 2.546
+    },
+    {
+      "theorem_id": "THEOREM_6",
+      "name": "Universal Quiescence Q(client_state) with Dirty-Form & Input-Abort CAS Guard + Differential Urgency U(req)",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 3.893
+    },
+    {
+      "theorem_id": "THEOREM_7",
+      "name": "Monotonic _row_ver Trigger Guard Propagates Alternating v2 -> v1 Updates with Depth <= 1 (Fixes Sticky _sync_src)",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 1.726
+    },
+    {
+      "theorem_id": "THEOREM_8",
+      "name": "Intra-Role Shared-Record Preservation across Urgent v2 -> Lazy v1 Updates via Inline Complement (_lc)",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 0.723
+    },
+    {
+      "theorem_id": "THEOREM_9",
+      "name": "Provider-Physics Multi-PoP CDN k=3 Quotient Slice Serializability, Stream-Aware Quiescence & Multipart Lease Safety",
+      "solver_result": "unsat",
+      "verified": true,
+      "elapsed_ms": 1.453
+    }
+  ]
+}
