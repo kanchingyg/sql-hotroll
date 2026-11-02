@@ -52,7 +52,7 @@ const STATE = "_hotroll_state";
 const INTERNAL = /^_hr\d+_/;
 const syncedFlag = (to: number) => `_hr${to}_synced`;
 
-export const viewName = (table: string, version: number) => `${table}_v${version}`;
+export const viewName = (table: string, version: number): string => `${table}_v${version}`;
 
 export function adopt(db: SqlDb, table: string, key: string, version = 1): void {
   if (!Number.isInteger(version) || version < 1) throw new Error(`version must be a positive integer (got ${version})`);

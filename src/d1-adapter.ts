@@ -20,8 +20,18 @@
  *  - Phase-Gated Dark-Canary shadow read comparator
  */
 
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { stripLeadingSqlComments } from "./ast-rewriter.ts";
+
+/**
+ * The adapter is written against `bun:sqlite`. It is loaded only when a path is given, so this
+ * module can be imported on Node and Deno too; there, pass a `bun:sqlite`-compatible database.
+ */
+function openBunDatabase(path: string): Database {
+  const bun = process.getBuiltinModule?.("bun:sqlite") as typeof import("bun:sqlite") | undefined;
+  if (!bun) throw new Error("D1StorageAdapter(path) needs Bun (bun:sqlite); on other runtimes pass a database.");
+  return new bun.Database(path);
+}
 
 /** `D1SessionBookmarkState` — exported SQ-HotRoll API symbol. */
 export interface D1SessionBookmarkState {
@@ -102,7 +112,7 @@ export class D1StorageAdapter {
   private bookmarkSeq = 1;
 
   constructor(dbOrPath: Database | string = ":memory:") {
-    this.db = typeof dbOrPath === "string" ? new Database(dbOrPath) : dbOrPath;
+    this.db = typeof dbOrPath === "string" ? openBunDatabase(dbOrPath) : dbOrPath;
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
     this.db.exec("PRAGMA journal_size_limit = 65536;");
