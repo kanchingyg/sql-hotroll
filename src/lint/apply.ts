@@ -31,7 +31,15 @@ export function applySteps(db: SqlDb, steps: Step[], mode: Mode): Applied {
       );
     }
     try {
-      const { changes } = db.prepare(step.sql).run();
+      const stmt = db.prepare(step.sql);
+      const tail = unparsedTail(step.sql, stmt.sourceSQL);
+      if (tail !== null) {
+        return fail(
+          step.line,
+          `statement splitter error: unparsed tail ${JSON.stringify(tail.slice(0, 60))}. This is a sql-hotroll bug; please report it with the file.`,
+        );
+      }
+      const { changes } = stmt.run();
       const a = step.action;
       if (a.kind === "delete") deleted.set(a.table, (deleted.get(a.table) ?? 0) + Number(changes));
     } catch (err) {
@@ -46,6 +54,20 @@ export function applySteps(db: SqlDb, steps: Step[], mode: Mode): Applied {
     }
   }
   return { failure: null, deleted };
+}
+
+/**
+ * SQLite compiles only the first statement of what it is given. If the splitter handed it more
+ * than one, the rest would silently never run, so anything but comments after it is an error.
+ */
+function unparsedTail(sql: string, compiled: string | undefined): string | null {
+  if (compiled === undefined) throw new Error("the lint driver must report sourceSQL (node:sqlite)");
+  if (!sql.startsWith(compiled)) return sql;
+  const rest = sql
+    .slice(compiled.length)
+    .replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, "")
+    .replace(/[\s;]+/g, "");
+  return rest === "" ? null : sql.slice(compiled.length).trim();
 }
 
 function rollback(db: SqlDb): void {

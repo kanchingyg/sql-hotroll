@@ -43,7 +43,9 @@ function seedTable(db: SqlDb, table: TableInfo, rows: number, done: SeedResult):
   }
   const writable = table.columns.filter((c) => c.hidden === 0);
   // Second attempt leaves defaulted and nullable columns to the schema, which gets past most CHECKs.
-  const attempts = [writable, writable.filter((c) => c.notNull && !c.hasDefault)];
+  // Foreign key columns stay filled: a child seeded with NULL links would hide every cascade.
+  const linked = new Set(table.foreignKeys.flatMap((fk) => fk.from));
+  const attempts = [writable, writable.filter((c) => (c.notNull && !c.hasDefault) || linked.has(c.name))];
   let lastError = "";
   for (const cols of attempts) {
     const reason = tryInsert(db, table, cols, rows, parents);

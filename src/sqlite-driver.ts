@@ -21,6 +21,8 @@ export interface SqlDb {
   prepare(sql: string): {
     all(...params: Param[]): unknown[];
     run(...params: Param[]): { changes: number | bigint };
+    /** The part of `sql` that was compiled (`node:sqlite` only; prepare ignores anything after it). */
+    readonly sourceSQL?: string;
   };
   close(): void;
 }

@@ -10,6 +10,7 @@
 import type { SqlDb } from "../sqlite-driver.ts";
 import type { Applied } from "./apply.ts";
 import { copiedBefore, type FileFacts, removedAt } from "./facts.ts";
+import { DEFER_OFF } from "./rules.ts";
 import { nonNullCount, rowCount, type Snapshot } from "./schema.ts";
 import type { SeedResult } from "./seed.ts";
 import { type Finding, finding, type Mode } from "./types.ts";
@@ -77,18 +78,33 @@ export function lossRules(
     }
   }
   const parentHit = (parent: string) => removedAt(facts, parent) !== undefined || byAction.has(parent);
-  for (const [table, missing] of byAction) {
+  const causeOf = (table: string, action: string) => {
     const fks = before.tables.get(table)?.foreignKeys ?? [];
-    const cause =
-      fks.find((fk) => fk.onDelete === "CASCADE" && fk.parent !== table && parentHit(fk.parent)) ??
-      fks.find((fk) => fk.onDelete === "CASCADE");
+    return (
+      fks.find((fk) => fk.onDelete === action && fk.parent !== table && parentHit(fk.parent)) ??
+      fks.find((fk) => fk.onDelete === action)
+    );
+  };
+  const deletedOnly = deletedOnlyTables(facts, before, byAction);
+  for (const [table, missing] of byAction) {
+    const cause = causeOf(table, "CASCADE");
     const parent = cause ? `"${cause.parent}"` : "a parent table";
+    const line = (cause && removedAt(facts, cause.parent)) ?? 1;
+    const of = `${missing} of ${counts.rows.get(table)} rows`;
     findings.push(
-      finding(
-        "CASCADE-LOSS",
-        (cause && removedAt(facts, cause.parent)) ?? 1,
-        `"${table}" lost ${missing} of ${counts.rows.get(table)} rows through ON DELETE CASCADE when rows of ${parent} were removed. ${CASCADE_FIX[mode]}`,
-      ),
+      cause && deletedOnly.has(cause.parent)
+        ? finding(
+            "CASCADE-DELETE",
+            line,
+            `deleting rows of ${parent} also deletes ${of} of "${table}" through ON DELETE CASCADE. Intended? If not, delete or re-point the "${table}" rows first.`,
+            table,
+          )
+        : finding(
+            "CASCADE-LOSS",
+            line,
+            `"${table}" lost ${of} through ON DELETE CASCADE when rows of ${parent} were removed. ${CASCADE_FIX[mode]}`,
+            table,
+          ),
     );
   }
   for (const [key, n] of counts.linked) {
@@ -99,22 +115,45 @@ export function lossRules(
     const control = nonNullCount(runs.control, table, column);
     if (real >= control) continue;
     const fk = before.tables.get(table)?.foreignKeys.find((f) => f.from.includes(column));
+    const line = (fk && removedAt(facts, fk.parent)) ?? 1;
+    const what = `${control - real} of ${n} "${table}"."${column}" values through ON DELETE ${fk?.onDelete ?? "SET NULL"}`;
     findings.push(
-      finding(
-        "CASCADE-NULL",
-        (fk && removedAt(facts, fk.parent)) ?? 1,
-        `"${table}"."${column}" lost ${control - real} of ${n} values through ON DELETE ${fk?.onDelete ?? "SET NULL"} when rows of "${fk?.parent}" were removed.`,
-      ),
+      fk && deletedOnly.has(fk.parent)
+        ? finding("CASCADE-DELETE", line, `deleting rows of "${fk.parent}" also clears ${what}. Intended?`, table)
+        : finding("CASCADE-NULL", line, `lost ${what} when rows of "${fk?.parent}" were removed.`, table),
     );
   }
   return findings;
 }
 
 /**
+ * Tables whose rows went only through the file's own DELETE statements, directly or through a
+ * cascade from such a table, and never through a DROP. Their cascades are intended, most likely.
+ */
+function deletedOnlyTables(facts: FileFacts, before: Snapshot, byAction: Map<string, number>): Set<string> {
+  const out = new Set([...facts.deletedAt.keys()].filter((t) => !facts.droppedAt.has(t)));
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const table of byAction.keys()) {
+      if (out.has(table) || facts.droppedAt.has(table)) continue;
+      const parents = (before.tables.get(table)?.foreignKeys ?? [])
+        .map((fk) => fk.parent)
+        .filter((p) => p !== table && (removedAt(facts, p) !== undefined || byAction.has(p)));
+      if (parents.length > 0 && parents.every((p) => out.has(p))) {
+        out.add(table);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Foreign keys left pointing at nothing: rows `PRAGMA foreign_key_check` reports, and foreign
  * keys whose parent table no longer exists (a rename-first rebuild rewrites the child's FK to the
- * old name). `PRAGMA defer_foreign_keys = off` discards pending violations, so a file can commit
- * with orphans even though foreign keys are on.
+ * old name). In SQLite and `wrangler --local`, `PRAGMA defer_foreign_keys = off` discards pending
+ * violations, so a file can commit with orphans even though foreign keys are on; the D1 docs say
+ * remote D1 fails instead (not verified).
  */
 export function orphanRules(db: SqlDb, facts: FileFacts, before: Snapshot, after: Snapshot): Finding[] {
   const findings: Finding[] = [];
@@ -125,11 +164,16 @@ export function orphanRules(db: SqlDb, facts: FileFacts, before: Snapshot, after
       const already = before.tables.get(table.name)?.foreignKeys.some((old) => old.parent === fk.parent);
       if (already && !before.tables.has(fk.parent)) continue;
       missingParent.add(`${table.name}\0${fk.parent}`);
+      const renamed = facts.steps.find(({ action: a }) => a.kind === "rename-table" && a.to === fk.parent);
+      const why = renamed
+        ? `Renaming a parent table rewrites its children's foreign keys to the new name, so rename the new table into place instead (create "x_new", copy, drop the old one, rename "x_new").`
+        : `The file drops "${fk.parent}" and does not create it again.`;
       findings.push(
         finding(
           "FK-ORPHAN",
-          facts.createdAt.get(fk.parent) ?? facts.droppedAt.get(fk.parent) ?? 1,
-          `"${table.name}" now references table "${fk.parent}", which does not exist after this migration. Renaming a parent table rewrites its children's foreign keys to the new name.`,
+          renamed?.line ?? facts.droppedAt.get(fk.parent) ?? 1,
+          `"${table.name}" references table "${fk.parent}", which does not exist after this migration. ${why}`,
+          table.name,
         ),
       );
     }
@@ -149,7 +193,8 @@ export function orphanRules(db: SqlDb, facts: FileFacts, before: Snapshot, after
       finding(
         "FK-ORPHAN",
         removedAt(facts, parent) ?? 1,
-        `${n} row(s) of "${table}" reference rows of "${parent}" that no longer exist. PRAGMA defer_foreign_keys = off discards pending violations, so the file commits anyway. Run PRAGMA foreign_key_check after the migration.`,
+        `${n} row(s) of "${table}" reference rows of "${parent}" that no longer exist. ${DEFER_OFF}`,
+        table,
       ),
     );
   }

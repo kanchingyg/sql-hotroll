@@ -78,17 +78,19 @@ async function lintOne(earlier: MigrationFile[], file: MigrationFile, opts: Lint
       findings.push(
         finding("APPLY-FAIL", failure.line, `${failure.message} (fails ${await failsWhen(earlier, facts, opts)}).`),
       );
-      return sortByLine(findings);
+      return merge(findings, new Set());
     }
     control.db.exec("PRAGMA foreign_keys = OFF");
     const controlApplied = applySteps(control.db, facts.steps, opts.mode);
     const after = snapshot(db);
+    let measured = new Set<string>();
     if (controlApplied.failure === null) {
       const runs = { real: db, control: control.db, controlApplied };
       findings.push(...lossRules(runs, facts, before, after, counts, opts.mode));
+      measured = new Set(counts.rows.keys());
     }
     findings.push(...orphanRules(db, facts, before, after), ...schemaRules(facts, before, after));
-    return sortByLine(findings);
+    return merge(findings, measured);
   } finally {
     db.close();
     control?.db.close();
@@ -130,4 +132,33 @@ function tablesInScope(facts: FileFacts, before: Snapshot): Map<string, number> 
   return scope;
 }
 
-const sortByLine = (findings: Finding[]) => findings.sort((a, b) => a.line - b.line);
+/**
+ * One finding per problem. A static warning about a child table gives way to what the run
+ * measured for it: the measured finding when rows were lost, nothing when none were. A static
+ * warning at the statement that failed to apply becomes the cause in the APPLY-FAIL message.
+ * Of the findings left about one child at one line, only the most severe are kept.
+ */
+function merge(findings: Finding[], measured: Set<string>): Finding[] {
+  const applyFail = findings.find((f) => f.rule === "APPLY-FAIL");
+  const kept = findings.filter((f) => {
+    if (f.rule === "DROP-PARENT-CASCADE" && f.table !== undefined && measured.has(f.table)) return false;
+    if (f.rule === "DROP-PARENT-NO-DEFER" && applyFail?.line === f.line) {
+      applyFail.message += ` Cause: ${f.message}`;
+      return false;
+    }
+    return true;
+  });
+  const worst = new Map<string, number>();
+  const key = (f: Finding) => (f.table === undefined ? null : `${f.line}\0${f.table}`);
+  const rank = (f: Finding) => (f.severity === "error" ? 1 : 0);
+  for (const f of kept) {
+    const k = key(f);
+    if (k !== null) worst.set(k, Math.max(worst.get(k) ?? 0, rank(f)));
+  }
+  return kept
+    .filter((f) => {
+      const k = key(f);
+      return k === null || rank(f) === worst.get(k);
+    })
+    .sort((a, b) => a.line - b.line);
+}

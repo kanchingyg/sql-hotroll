@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { applySteps } from "../src/lint/apply.ts";
 import { discoverMigrations, type FileReport, formatReport, lintMigrations, type Mode } from "../src/lint/index.ts";
 import { classify, splitStatements } from "../src/lint/sql.ts";
+import { openDatabase } from "../src/sqlite-driver.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 
@@ -258,10 +260,14 @@ describe("B3: dropping a referenced table, by the child's ON DELETE action", () 
   const rebuildP = (before: string, after = "") =>
     `${before}\nCREATE TABLE p_new (id INTEGER PRIMARY KEY, note TEXT);\nINSERT INTO p_new SELECT * FROM p;\nDROP TABLE p;\nALTER TABLE p_new RENAME TO p;\n${after}`;
 
-  test("NO ACTION without defer: warning, and the file fails", async () => {
+  test("NO ACTION without defer: the file fails at the DROP, and the defer advice is the cause", async () => {
     const [, r] = await lint([schema(""), rebuildP("")]);
-    expect(rules(r)).toEqual(expect.arrayContaining(["DROP-PARENT-NO-DEFER", "APPLY-FAIL"]));
-    expect(r?.findings.find((f) => f.rule === "DROP-PARENT-NO-DEFER")?.message).toContain("foreign_key_check");
+    expect(rules(r)).toEqual(["APPLY-FAIL"]);
+    const fail = r?.findings[0];
+    expect(fail?.line).toBe(4);
+    expect(fail?.message).toContain('Cause: drops "p"');
+    expect(fail?.message).toContain("foreign_key_check");
+    expect(fail?.message).toContain("remote D1 fails instead (not verified)");
   });
 
   test("RESTRICT with defer on alone fails at COMMIT, and the warning says so", async () => {
@@ -284,13 +290,40 @@ describe("B3: dropping a referenced table, by the child's ON DELETE action", () 
       "PRAGMA defer_foreign_keys = on;\nDROP TABLE p;\nPRAGMA defer_foreign_keys = off;",
     ]);
     expect(r?.status).toBe("FAIL");
-    expect(rules(r)).toContain("FK-ORPHAN");
+    const orphans = r?.findings.filter((f) => f.rule === "FK-ORPHAN").map((f) => f.message) ?? [];
+    expect(orphans.some((m) => m.includes('The file drops "p" and does not create it again'))).toBe(true);
   });
 
-  test("CASCADE and SET NULL children get DROP-PARENT-CASCADE, not the defer advice", async () => {
+  test("a measured CASCADE child gets one CASCADE-LOSS, not the static warning or the defer advice", async () => {
     const [, r] = await lint([schema(" ON DELETE CASCADE"), rebuildP("PRAGMA defer_foreign_keys = on;")]);
-    expect(rules(r)).toEqual(expect.arrayContaining(["DROP-PARENT-CASCADE", "CASCADE-LOSS"]));
-    expect(rules(r)).not.toContain("DROP-PARENT-NO-DEFER");
+    expect(r?.findings.map((f) => [f.rule, f.line, f.table])).toEqual([["CASCADE-LOSS", 4, "c"]]);
+  });
+
+  test("an unseeded CASCADE child keeps the static DROP-PARENT-CASCADE", async () => {
+    const [, r] = await lint([
+      "CREATE TABLE p (id INTEGER PRIMARY KEY, note TEXT); CREATE TABLE c (id INTEGER PRIMARY KEY, p_id INTEGER REFERENCES p (id) ON DELETE CASCADE, code TEXT NOT NULL CHECK (length(code) > 40));",
+      rebuildP(""),
+    ]);
+    expect(rules(r)).toEqual(expect.arrayContaining(["UNSEEDED", "DROP-PARENT-CASCADE"]));
+    expect(r?.findings.find((f) => f.rule === "DROP-PARENT-CASCADE")?.table).toBe("c");
+  });
+
+  test("a DELETE of parent rows cascades on purpose: CASCADE-DELETE warning, exit 0", async () => {
+    const [, r] = await lint([schema(" ON DELETE CASCADE"), "DELETE FROM p WHERE id = 1;"]);
+    expect(r?.status).toBe("WARN");
+    expect(r?.findings.map((f) => f.rule)).toEqual(["CASCADE-DELETE"]);
+    expect(r?.findings[0]?.message).toContain('deletes 1 of 3 rows of "c"');
+  });
+
+  test("a DELETE plus a rebuild of the parent is still CASCADE-LOSS", async () => {
+    const [, r] = await lint([schema(" ON DELETE CASCADE"), rebuildP("DELETE FROM p WHERE id = 1;")]);
+    expect(rules(r)).toContain("CASCADE-LOSS");
+    expect(rules(r)).not.toContain("CASCADE-DELETE");
+  });
+
+  test("a DELETE of parent rows with SET NULL children is CASCADE-DELETE too", async () => {
+    const [, r] = await lint([schema(" ON DELETE SET NULL"), "DELETE FROM p WHERE id = 1;"]);
+    expect(r?.findings.map((f) => f.rule)).toEqual(["CASCADE-DELETE"]);
   });
 
   test("backing up the child and restoring it after the rebuild is clean", async () => {
@@ -309,7 +342,10 @@ describe("B3: dropping a referenced table, by the child's ON DELETE action", () 
       schema(""),
       "PRAGMA defer_foreign_keys = on;\nALTER TABLE p RENAME TO p_old;\nCREATE TABLE p (id INTEGER PRIMARY KEY, note TEXT);\nINSERT INTO p SELECT * FROM p_old;\nDROP TABLE p_old;\nPRAGMA defer_foreign_keys = off;",
     ]);
-    expect(r?.findings.find((f) => f.rule === "FK-ORPHAN")?.message).toContain('"p_old", which does not exist');
+    const orphan = r?.findings.find((f) => f.rule === "FK-ORPHAN");
+    expect(orphan?.message).toContain('"p_old", which does not exist');
+    expect(orphan?.message).toContain("Renaming a parent table");
+    expect(orphan?.line).toBe(2);
   });
 
   test("sqlite mode: foreign_keys = OFF after BEGIN is FK-PRAGMA-NOOP", async () => {
@@ -389,5 +425,90 @@ describe("B4: finding migrations", () => {
   test("--version and -v print the version", () => {
     expect(cli("--version").out.trim()).toMatch(/^\d+\.\d+\.\d+/);
     expect(cli("-v").code).toBe(0);
+  });
+});
+
+describe("seeding", () => {
+  test("a nullable FK column stays linked when a CHECK forces the fallback insert", async () => {
+    const [, r] = await lint([
+      "CREATE TABLE p (id INTEGER PRIMARY KEY, note TEXT); CREATE TABLE c (id INTEGER PRIMARY KEY, p_id INTEGER REFERENCES p (id) ON DELETE CASCADE, code TEXT CHECK (code LIKE 'X-%'));",
+      "CREATE TABLE p_new (id INTEGER PRIMARY KEY, note TEXT);\nINSERT INTO p_new SELECT * FROM p;\nDROP TABLE p;\nALTER TABLE p_new RENAME TO p;",
+    ]);
+    expect(r?.findings.map((f) => f.rule)).toEqual(["CASCADE-LOSS"]);
+  });
+});
+
+describe("red team round 2 regressions", () => {
+  const RT2 = join(FIXTURES, "red-team-2");
+  const run = (dir: string) => {
+    const r = cli("lint", join(RT2, dir), "--json");
+    return { code: r.code, files: (JSON.parse(r.out) as { files: FileReport[] }).files };
+  };
+
+  test('B5: a column named "begin" in a trigger does not swallow the next statement', () => {
+    const { code, files } = run("trig-begin");
+    expect(code).toBe(1);
+    expect(files[1]?.findings.map((f) => f.rule)).toContain("CASCADE-LOSS");
+  });
+
+  test('B5: SET "end" = 1 inside a trigger applies', () => {
+    const { code, files } = run("trig-end");
+    expect(code).toBe(0);
+    expect(files.map((f) => f.status)).toEqual(["OK", "OK"]);
+  });
+
+  test("B5: anything SQLite did not compile is an APPLY-FAIL, never skipped", async () => {
+    const db = await openDatabase(":memory:");
+    const sql = "CREATE TABLE a (id INTEGER); DROP TABLE a";
+    const { failure } = applySteps(db, [{ line: 3, code: sql, sql, action: { kind: "other" } }], "d1");
+    expect(failure?.line).toBe(3);
+    expect(failure?.message).toContain("statement splitter error: unparsed tail");
+    expect(db.prepare("SELECT count(*) AS n FROM sqlite_master").all()).toEqual([{ n: 0 }]);
+    db.close();
+  });
+
+  test("B5: trailing comments after a statement are fine", async () => {
+    const db = await openDatabase(":memory:");
+    const sql = "CREATE TABLE a (id INTEGER) -- note\n/* more */";
+    expect(applySteps(db, [{ line: 1, code: sql, sql, action: { kind: "other" } }], "d1").failure).toBeNull();
+    db.close();
+  });
+
+  test("B6: a loose schema.sql next to migrations/ is not linted", () => {
+    const r = cli("lint", join(RT2, "d1-tutorial-layout"), "--json");
+    expect(r.code).toBe(1);
+    const files = (JSON.parse(r.out) as { files: FileReport[] }).files.map((f) => f.file);
+    expect(files.every((f) => f.includes("/migrations/"))).toBe(true);
+  });
+
+  test("B6: no config, migrations/ wins over loose .sql files too", () => {
+    const root = mkdtempSync(join(tmpdir(), "hotroll-lint-"));
+    mkdirSync(join(root, "migrations"));
+    writeFileSync(join(root, "schema.sql"), "CREATE TABLE unrelated (id INTEGER);");
+    writeFileSync(join(root, "migrations/0001_init.sql"), "CREATE TABLE a (id INTEGER PRIMARY KEY);");
+    const files = (JSON.parse(cli("lint", root, "--json").out) as { files: FileReport[] }).files;
+    expect(files.map((f) => f.file.split("/").slice(-2).join("/"))).toEqual(["migrations/0001_init.sql"]);
+  });
+
+  test("wrangler.toml inline d1_databases arrays are read", () => {
+    const { code } = run("toml-inline-array");
+    expect(code).toBe(1);
+  });
+
+  test("a configured migrations_dir that does not exist is a usage error", () => {
+    const root = mkdtempSync(join(tmpdir(), "hotroll-lint-"));
+    writeFileSync(
+      join(root, "wrangler.jsonc"),
+      '{ "d1_databases": [{ "binding": "DB", "migrations_dir": "db/missing" }] }',
+    );
+    const r = cli("lint", root);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('migrations_dir "db/missing"');
+  });
+
+  test("the intentional parent DELETE fixture warns and exits 0", () => {
+    const { code, files } = run("b2-parent-delete");
+    expect(code).toBe(0);
+    expect(files[1]?.findings.map((f) => f.rule)).toEqual(["CASCADE-DELETE"]);
   });
 });

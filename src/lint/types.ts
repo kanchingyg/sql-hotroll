@@ -14,6 +14,7 @@ export type Mode =
 export type Rule =
   | "CASCADE-LOSS"
   | "CASCADE-NULL"
+  | "CASCADE-DELETE"
   | "ROW-LOSS"
   | "APPLY-FAIL"
   | "FK-ORPHAN"
@@ -31,6 +32,7 @@ export type Severity = "error" | "warning";
 export const SEVERITY: Record<Rule, Severity> = {
   "CASCADE-LOSS": "error",
   "CASCADE-NULL": "error",
+  "CASCADE-DELETE": "warning",
   "ROW-LOSS": "error",
   "APPLY-FAIL": "error",
   "FK-ORPHAN": "error",
@@ -49,6 +51,8 @@ export interface Finding {
   /** 1-based line in the migration file. */
   line: number;
   message: string;
+  /** The child table a foreign key finding is about, so static and measured findings can be merged. */
+  table?: string;
 }
 
 /** FAIL: an error. UNSEEDED: some table in scope had no rows, so data loss could not be checked. */
@@ -60,8 +64,10 @@ export interface FileReport {
   findings: Finding[];
 }
 
-export function finding(rule: Rule, line: number, message: string): Finding {
-  return { rule, severity: SEVERITY[rule], line, message };
+export function finding(rule: Rule, line: number, message: string, table?: string): Finding {
+  return table === undefined
+    ? { rule, severity: SEVERITY[rule], line, message }
+    : { rule, severity: SEVERITY[rule], line, message, table };
 }
 
 export function statusOf(findings: Finding[]): Status {

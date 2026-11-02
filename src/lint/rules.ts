@@ -103,14 +103,15 @@ function dropParentRules(
   );
   const acting = children.filter((c) => ACTING.has(c.action));
   const blocking = children.filter((c) => !ACTING.has(c.action));
-  if (acting.length > 0) {
-    const whatever =
-      mode === "d1" ? "in D1 whatever pragmas the file sets" : "unless PRAGMA foreign_keys = OFF runs before any BEGIN";
+  const whatever =
+    mode === "d1" ? "in D1 whatever pragmas the file sets" : "unless PRAGMA foreign_keys = OFF runs before any BEGIN";
+  for (const child of acting) {
     findings.push(
       finding(
         "DROP-PARENT-CASCADE",
         line,
-        `drops "${parent}"; ${describe(acting)} will lose rows or foreign key values ${whatever}. Use ALTER TABLE ADD/RENAME/DROP COLUMN if they are enough; otherwise, in this same file, copy the children (and their own children) to a backup table before the drop and insert them back after the rename.`,
+        `drops "${parent}"; ${describe([child])} will lose rows or foreign key values ${whatever}. Use ALTER TABLE ADD/RENAME/DROP COLUMN if they are enough; otherwise, in this same file, copy the children (and their own children) to a backup table before the drop and insert them back after the rename.`,
+        child.child,
       ),
     );
   }
@@ -123,7 +124,7 @@ function dropParentRules(
       finding(
         "DROP-PARENT-NO-DEFER",
         line,
-        `drops "${parent}", which ${describe(blocking)} reference. ${advice}. Setting it off discards pending foreign key violations, so run PRAGMA foreign_key_check after the migration.`,
+        `drops "${parent}", which ${describe(blocking)} reference. ${advice}. ${DEFER_OFF}`,
       ),
     );
   }
@@ -135,6 +136,10 @@ function dropParentRules(
  * on the violations the drop counted), or on and switched off later (the counters reset).
  */
 type Deferral = "none" | "on-only" | "on-off";
+
+/** What `defer_foreign_keys = off` does with pending violations, hedged: remote D1 is untested. */
+export const DEFER_OFF =
+  "In SQLite and `wrangler --local`, setting it off discards pending violations and the file commits with orphans; the D1 docs say remote D1 fails instead (not verified). Either way, run PRAGMA foreign_key_check after migrating.";
 
 /** ON DELETE actions that change child rows when the parent's rows go. */
 const ACTING = new Set(["CASCADE", "SET NULL", "SET DEFAULT"]);

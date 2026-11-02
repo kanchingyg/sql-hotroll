@@ -90,10 +90,14 @@ function countLines(source: string, from: number, to: number): number {
 
 function insideTrigger(code: string): boolean {
   if (!/^\s*CREATE\s+(TEMP\s+|TEMPORARY\s+)?TRIGGER\b/i.test(code)) return false;
-  const words = (re: RegExp) => code.match(re)?.length ?? 0;
+  // A column named "begin" or "end" is not a keyword.
+  const bare = code.replace(QUOTED, " ");
+  const words = (re: RegExp) => bare.match(re)?.length ?? 0;
   const opened = words(/\bBEGIN\b/gi) + words(/\bCASE\b/gi);
   return opened === 0 || words(/\bEND\b/gi) < opened;
 }
+
+const QUOTED = /"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|'(?:[^']|'')*'/g;
 
 /** Unquotes `"x"`, `` `x` ``, `[x]`, and drops a `main.` / `temp.` schema prefix. */
 export function unquote(name: string): string {

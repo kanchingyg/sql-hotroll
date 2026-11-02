@@ -2,10 +2,11 @@
  * Finds migration files the way `wrangler d1 migrations apply` does.
  *
  * Given a directory, in order of preference:
- * 1. `.sql` files directly in it (plus drizzle-kit's `<name>/migration.sql` folders);
- * 2. every D1 binding's `migrations_dir` and `migrations_pattern` in its `wrangler.toml`,
- *    `wrangler.jsonc` or `wrangler.json`, with wrangler's default `migrations`;
- * 3. its `migrations/` folder.
+ * 1. every D1 binding's `migrations_dir` and `migrations_pattern` in its `wrangler.jsonc`,
+ *    `wrangler.json` or `wrangler.toml`, with wrangler's default `migrations`;
+ * 2. its `migrations/` folder;
+ * 3. `.sql` files directly in it (plus drizzle-kit's `<name>/migration.sql` folders).
+ * A loose `schema.sql` next to `migrations/` (the D1 tutorial layout) is not a migration.
  *
  * Given one `.sql` file, the files before it in the same folder are replayed first.
  * https://developers.cloudflare.com/d1/reference/migrations/
@@ -26,15 +27,16 @@ export class PathError extends Error {}
 
 export function discoverMigrations(path: string): MigrationSet[] {
   if (!existsSync(path)) throw new PathError(`path not found: ${path}`);
-  if (!statSync(path).isDirectory()) return [singleFile(path)];
-  const here = listMigrations(path);
-  if (here.length > 0) return [{ files: here, from: 0 }];
-  const configured = wranglerMigrations(path);
-  if (configured.length > 0) return configured.map((files) => ({ files, from: 0 }));
+  if (!isDirectory(path)) return [singleFile(path)];
+  const bindings = readD1Bindings(path);
+  if (bindings.length > 0) return wranglerMigrations(path, bindings).map((files) => ({ files, from: 0 }));
   const nested = join(path, "migrations");
-  if (existsSync(nested) && statSync(nested).isDirectory()) return discoverMigrations(nested);
-  return [];
+  if (isDirectory(nested)) return discoverMigrations(nested);
+  const here = listMigrations(path);
+  return here.length > 0 ? [{ files: here, from: 0 }] : [];
 }
+
+const isDirectory = (path: string) => existsSync(path) && statSync(path).isDirectory();
 
 function singleFile(path: string): MigrationSet {
   const siblings = listMigrations(dirname(path));
@@ -54,12 +56,17 @@ function listMigrations(dir: string): MigrationFile[] {
   return found.sort(compareMigrationPaths).map((rel) => load(join(dir, rel)));
 }
 
-function wranglerMigrations(root: string): MigrationFile[][] {
+function wranglerMigrations(root: string, bindings: D1Binding[]): MigrationFile[][] {
   const sets = new Map<string, MigrationFile[]>();
-  for (const db of readD1Bindings(root)) {
+  for (const db of bindings) {
     const dir = db.migrations_dir ?? "migrations";
     const key = `${dir}\0${db.migrations_pattern ?? ""}`;
-    if (sets.has(key) || !existsSync(join(root, dir))) continue;
+    if (sets.has(key)) continue;
+    if (!isDirectory(join(root, dir))) {
+      // A binding without migrations yet is fine; a configured folder that is missing is a typo.
+      if (db.migrations_dir === undefined) continue;
+      throw new PathError(`migrations_dir "${dir}" in the wrangler config of ${root} does not exist`);
+    }
     sets.set(
       key,
       db.migrations_pattern ? globMigrations(root, dir, db.migrations_pattern) : listMigrations(join(root, dir)),
@@ -89,9 +96,15 @@ function readD1Bindings(root: string): D1Binding[] {
   return [];
 }
 
-/** Reads `migrations_dir` / `migrations_pattern` from each `[[...d1_databases]]` table. Nothing else. */
+/**
+ * Reads `migrations_dir` / `migrations_pattern` from each `[[...d1_databases]]` table and from
+ * inline `d1_databases = [{ ... }]` arrays. Nothing else.
+ */
 function tomlD1Bindings(text: string): D1Binding[] {
   const out: D1Binding[] = [];
+  for (const [, body] of text.matchAll(/^\s*d1_databases\s*=\s*\[([\s\S]*?)\]\s*$/gm)) {
+    for (const [, table] of (body as string).matchAll(/\{([^}]*)\}/g)) out.push(tomlKeys(table as string));
+  }
   let current: D1Binding | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
@@ -100,10 +113,17 @@ function tomlD1Bindings(text: string): D1Binding[] {
       if (current) out.push(current);
       continue;
     }
-    const m = line.match(/^(migrations_dir|migrations_pattern)\s*=\s*(["'])(.*?)\2/);
-    if (current && m) current[m[1] as keyof D1Binding] = m[3] as string;
+    if (current) Object.assign(current, tomlKeys(line));
   }
   return out;
+}
+
+function tomlKeys(text: string): D1Binding {
+  const binding: D1Binding = {};
+  for (const [, key, , value] of text.matchAll(/\b(migrations_dir|migrations_pattern)\s*=\s*(["'])(.*?)\2/g)) {
+    binding[key as keyof D1Binding] = value as string;
+  }
+  return binding;
 }
 
 /** Removes comments and trailing commas outside strings. */
