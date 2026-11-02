@@ -3,7 +3,8 @@
 [![ci](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml/badge.svg)](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/sql-hotroll)](https://www.npmjs.com/package/sql-hotroll)
 [![JSR](https://jsr.io/badges/@kanchingyg/hotroll)](https://jsr.io/@kanchingyg/hotroll)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23682048.svg)](https://doi.org/10.5281/zenodo.23682048)
+[![paper DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23675280.svg)](https://doi.org/10.5281/zenodo.23675280)
+[![software DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23675682.svg)](https://doi.org/10.5281/zenodo.23675682)
 [![license](https://img.shields.io/github/license/kanchingyg/sql-hotroll)](https://github.com/kanchingyg/sql-hotroll/blob/HEAD/LICENSE)
 
 `sql-hotroll lint` tells you, before you run a SQLite or Cloudflare D1 migration, whether it will silently delete rows. It applies your migration files to an in-memory database seeded with rows and counts what is left.
@@ -23,16 +24,15 @@
 
 ## Quickstart
 
-The CLI is not in a release yet; npm `sql-hotroll@0.1.7` and JSR `@kanchingyg/hotroll@0.1.7` contain the library only. Until 0.2.0 is out, run it from a clone. `npm install` compiles `dist/` with TypeScript through the `prepare` script; the built CLI runs on Node 22.13+ or Bun.
+Needs Node 22.13 or later, or Bun (`bunx sql-hotroll lint`).
 
 ```bash
-git clone https://github.com/kanchingyg/sql-hotroll && cd sql-hotroll && npm install
-npx . lint path/to/project                      # wrangler.toml/.jsonc, else migrations/, else *.sql
-npx . lint path/to/drizzle                      # drizzle-kit: 0000_x.sql or <name>/migration.sql
-npx . lint path/to/migrations/0002_change.sql   # one file, after replaying the files before it
+npx sql-hotroll lint path/to/project                      # wrangler.toml/.jsonc, else migrations/, else *.sql
+npx sql-hotroll lint path/to/drizzle                      # drizzle-kit: 0000_x.sql or <name>/migration.sql
+npx sql-hotroll lint path/to/migrations/0002_change.sql   # one file, after replaying the files before it
 ```
 
-`lint` with no path looks at the current directory. A directory is read in this order: the wrangler config's `migrations_dir` (default `migrations/`), then a `migrations/` folder, then the `.sql` files in the directory itself, so a `schema.sql` next to `migrations/` is not mistaken for the migrations. A wrangler config with several D1 bindings is linted once per `migrations_dir` / `migrations_pattern`. After the release this becomes `npx sql-hotroll lint`.
+`lint` with no path looks at the current directory. A directory is read in this order: the wrangler config's `migrations_dir` (default `migrations/`), then a `migrations/` folder, then the `.sql` files in the directory itself, so a `schema.sql` next to `migrations/` is not mistaken for the migrations. A wrangler config with several D1 bindings is linted once per `migrations_dir` / `migrations_pattern`.
 
 In GitHub Actions, `--format github` turns findings into annotations on the pull request. The CLI needs `node:sqlite`, so pin Node 22.13 or later (not yet tried on a hosted runner):
 
@@ -51,7 +51,7 @@ For each migration file, in the order wrangler applies them: build the schema fr
 
 | Rule | Level | Meaning |
 |---|---|---|
-| CASCADE-LOSS | error | A table lost rows through ON DELETE CASCADE when its parent was dropped or rebuilt |
+| CASCADE-LOSS | error | A table lost rows through ON DELETE CASCADE when its parent was dropped, rebuilt, emptied and refilled, or hit by INSERT OR REPLACE |
 | CASCADE-DELETE | warning | A DELETE of parent rows also deleted (or set to NULL) child rows through ON DELETE CASCADE / SET NULL; often intended |
 | CASCADE-NULL | error | Foreign key values were set to NULL by ON DELETE SET NULL / SET DEFAULT |
 | ROW-LOSS | error | A table lost rows that no DELETE in the file removed (for example a rebuild that copies fewer rows) |
@@ -110,7 +110,7 @@ sql-hotroll contract --db app.sqlite --table users            # once no session 
 
 ## Research
 
-The library modules (`src/core.ts`, `lenses.ts`, the D1 and PostgreSQL adapters, `client-quiescence.ts`) implement the system in the paper *Session-Quiescence-Gated Progressive Schema Evolution with Inline Complement Lenses* ([doi:10.5281/zenodo.23682048](https://doi.org/10.5281/zenodo.23682048), PDF in this repo). Clients move from schema v1 to v2 only at a safe point (page navigation, idle window, or explicit checkpoint), while triggers keep v1 and v2 tables in sync.
+The library modules (`src/core.ts`, `lenses.ts`, the D1 and PostgreSQL adapters, `client-quiescence.ts`) implement the system in the paper *Session-Quiescence-Gated Progressive Schema Evolution with Inline Complement Lenses* (v2, [doi:10.5281/zenodo.23682048](https://doi.org/10.5281/zenodo.23682048), PDF in this repo; all versions: [doi:10.5281/zenodo.23675280](https://doi.org/10.5281/zenodo.23675280)). Clients move from schema v1 to v2 only at a safe point (page navigation, idle window, or explicit checkpoint), while triggers keep v1 and v2 tables in sync.
 
 The paper's numbers come from local benchmark runs (in-process SQLite in WAL mode and PostgreSQL 17.11), not production. In 960 runs, TPC-C p99.9 latency was 49.9x lower on SQLite and 64.5x lower on PostgreSQL than a global cutover, with 0 of 1,200 requests failing versus 486 of 1,200. Z3 and Spin check nine safety properties of a model of the protocol, not of this TypeScript code.
 
@@ -124,11 +124,17 @@ python3 proofs/prove_hot_roll_safety.py && python3 proofs/verify_lenses_z3.py
 
 ## Development
 
+To run the CLI from a clone, `npm install` compiles `dist/` through the `prepare` script (Bun is not needed), then `npx . lint path/to/project`.
+
 ```bash
 bun install
 bun run check      # biome on the CLI code, tsc --noEmit, bun test
 bun run build      # dist/: JavaScript and .d.ts for every export; also runs on npm install and npm pack
 ```
+
+## Citing
+
+[`CITATION.cff`](CITATION.cff) lists the paper (concept DOI 10.5281/zenodo.23675280) as the preferred citation and the software (concept DOI 10.5281/zenodo.23675682, every release) for the code itself.
 
 ## AI assistance
 

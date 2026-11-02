@@ -67,7 +67,8 @@
     "./expand": {
       "types": "./dist/expand/sqlite.d.ts",
       "default": "./dist/expand/sqlite.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -82,7 +83,7 @@
     "lint": "biome check",
     "format": "biome check --write",
     "check": "bun run lint && bun run typecheck && bun test",
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/bin.js',0o755)\"",
     "prepack": "npm run build",
     "verify:physics": "bun run testbeds/run-all.ts",
     "prepare": "npm run build",

@@ -65,6 +65,9 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile || bun install
 
+      - name: Lint
+        run: bun run lint
+
       - name: Typecheck
         run: bunx tsc --noEmit
 
@@ -79,7 +82,7 @@ jobs:
           if npm view "$NAME@$VER" version >/dev/null 2>&1; then
             echo "npm already has ${NAME}@${VER}; skipping publish"
           else
-            npm publish --access public --provenance || echo "::warning::npm OIDC not configured yet for ${NAME}; publish locally or configure trusted publisher"
+            npm publish --access public --provenance
           fi
 
       - name: Publish to JSR with provenance
