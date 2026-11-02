@@ -16,66 +16,58 @@
  *
  * @module
  */
+import { copiedBefore, type FileFacts } from "./facts.ts";
 import type { Snapshot } from "./schema.ts";
-import type { Action, Statement } from "./sql.ts";
-import type { Finding, Mode } from "./types.ts";
+import { type Finding, finding, type Mode } from "./types.ts";
 
 const OFF = new Set(["off", "0", "false", "no"]);
 const ON = new Set(["on", "1", "true", "yes"]);
 
-export interface Step extends Statement {
-  action: Action;
-}
+const FK_PRAGMA_NOOP =
+  "PRAGMA foreign_keys = OFF does nothing here: D1 runs each migration file in one transaction and SQLite ignores this pragma inside a transaction. Foreign keys and ON DELETE actions stay on.";
 
-export function staticRules(steps: Step[], before: Snapshot, mode: Mode): Finding[] {
+/** Rules that read statements in order, tracking the foreign key pragmas as they change. */
+export function staticRules(facts: FileFacts, before: Snapshot, mode: Mode): Finding[] {
   const findings: Finding[] = [];
   let enforced = true;
   let deferred = false;
-  const copied = new Set<string>();
-  for (const step of steps) {
-    const a = step.action;
+  for (const { line, action: a } of facts.steps) {
     if (a.kind === "pragma" && a.name === "foreign_keys" && OFF.has(a.value)) {
-      if (mode === "d1") {
-        findings.push({
-          rule: "FK-PRAGMA-NOOP",
-          severity: "warning",
-          line: step.line,
-          message:
-            "PRAGMA foreign_keys = OFF does nothing here: D1 runs each migration file in one transaction and SQLite ignores this pragma inside a transaction. Foreign keys and ON DELETE actions stay on.",
-        });
-      } else {
-        enforced = false;
-      }
+      if (mode === "d1") findings.push(finding("FK-PRAGMA-NOOP", line, FK_PRAGMA_NOOP));
+      else enforced = false;
     }
     if (a.kind === "pragma" && a.name === "defer_foreign_keys") deferred = ON.has(a.value);
-    if (a.kind === "copy") copied.add(a.from);
-    if (a.kind === "drop-table" && before.tables.has(a.table)) {
-      const children = childrenOf(before, a.table);
-      if (children.length > 0 && enforced && !deferred) {
-        findings.push({
-          rule: "DROP-PARENT-NO-DEFER",
-          severity: "warning",
-          line: step.line,
-          message: `drops "${a.table}", which ${list(children)} reference, without PRAGMA defer_foreign_keys = on first. Children with NO ACTION make the drop fail. Deferring avoids that failure but does not stop ON DELETE CASCADE or SET NULL.`,
-        });
-      }
-      if (!copied.has(a.table)) {
-        findings.push({
-          rule: "DROP-NO-BACKUP",
-          severity: "warning",
-          line: step.line,
-          message: `drops table "${a.table}" and its rows; no earlier statement in this file copies them.`,
-        });
-      }
+    if ((a.kind !== "drop-table" && a.kind !== "drop-column") || !before.tables.has(a.table)) continue;
+    const backedUp = copiedBefore(facts, a.table, line);
+    if (a.kind === "drop-column") {
+      if (!backedUp)
+        findings.push(
+          finding(
+            "DROP-NO-BACKUP",
+            line,
+            `drops column "${a.table}"."${a.column}" and its values; no earlier statement in this file copies them.`,
+          ),
+        );
+      continue;
     }
-    if (a.kind === "drop-column" && before.tables.has(a.table) && !copied.has(a.table)) {
-      findings.push({
-        rule: "DROP-NO-BACKUP",
-        severity: "warning",
-        line: step.line,
-        message: `drops column "${a.table}"."${a.column}" and its values; no earlier statement in this file copies them.`,
-      });
+    const children = childrenOf(before, a.table);
+    if (children.length > 0 && enforced && !deferred) {
+      findings.push(
+        finding(
+          "DROP-PARENT-NO-DEFER",
+          line,
+          `drops "${a.table}", which ${children.map((n) => `"${n}"`).join(", ")} reference, without PRAGMA defer_foreign_keys = on first. Children with NO ACTION make the drop fail. Deferring avoids that failure but does not stop ON DELETE CASCADE or SET NULL.`,
+        ),
+      );
     }
+    if (!backedUp)
+      findings.push(
+        finding(
+          "DROP-NO-BACKUP",
+          line,
+          `drops table "${a.table}" and its rows; no earlier statement in this file copies them.`,
+        ),
+      );
   }
   return findings;
 }
@@ -87,44 +79,33 @@ export function childrenOf(schema: Snapshot, parent: string): string[] {
     .map((t) => t.name);
 }
 
-export function list(names: string[]): string {
-  return names.map((n) => `"${n}"`).join(", ");
-}
-
 /** Column type changes and dropped triggers, found by comparing the schema before and after. */
-export function schemaRules(steps: Step[], before: Snapshot, after: Snapshot): Finding[] {
+export function schemaRules(facts: FileFacts, before: Snapshot, after: Snapshot): Finding[] {
   const findings: Finding[] = [];
-  const recreatedAt = (table: string) =>
-    steps.find(
-      (s) =>
-        (s.action.kind === "rename-table" && s.action.to === table) ||
-        (s.action.kind === "create-table" && s.action.table === table),
-    )?.line ?? 1;
   for (const [name, old] of before.tables) {
     const now = after.tables.get(name);
     if (!now) continue;
     for (const col of old.columns) {
       const next = now.columns.find((c) => c.name === col.name);
-      if (next && normalizeType(next.type) !== normalizeType(col.type)) {
-        findings.push({
-          rule: "TYPE-CHANGE",
-          severity: "warning",
-          line: recreatedAt(name),
-          message: `"${name}"."${col.name}" changes type from ${col.type || "(none)"} to ${next.type || "(none)"}. SQLite copies existing values as they are, without converting them.`,
-        });
-      }
+      if (!next || normalizeType(next.type) === normalizeType(col.type)) continue;
+      findings.push(
+        finding(
+          "TYPE-CHANGE",
+          facts.createdAt.get(name) ?? 1,
+          `"${name}"."${col.name}" changes type from ${col.type || "(none)"} to ${next.type || "(none)"}. SQLite copies existing values as they are, without converting them.`,
+        ),
+      );
     }
   }
-  const droppedExplicitly = new Set(steps.flatMap((s) => (s.action.kind === "drop-trigger" ? [s.action.trigger] : [])));
   for (const [trigger, table] of before.triggers) {
-    if (after.triggers.has(trigger) || droppedExplicitly.has(trigger) || !after.tables.has(table)) continue;
-    const drop = steps.find((s) => s.action.kind === "drop-table" && s.action.table === table);
-    findings.push({
-      rule: "TRIGGER-LOST",
-      severity: "warning",
-      line: drop?.line ?? 1,
-      message: `trigger "${trigger}" on "${table}" is gone after the migration. Dropping a table drops its triggers; recreate it after the rebuild.`,
-    });
+    if (after.triggers.has(trigger) || facts.droppedTriggers.has(trigger) || !after.tables.has(table)) continue;
+    findings.push(
+      finding(
+        "TRIGGER-LOST",
+        facts.droppedAt.get(table) ?? 1,
+        `trigger "${trigger}" on "${table}" is gone after the migration. Dropping a table drops its triggers; recreate it after the rebuild.`,
+      ),
+    );
   }
   return findings;
 }

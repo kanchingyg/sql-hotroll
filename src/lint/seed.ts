@@ -103,8 +103,7 @@ function valueFor(
 function byAffinity(col: ColumnInfo, i: number): Param {
   const type = col.type.toUpperCase();
   if (type.includes("INT")) return i + 1;
-  if (/CHAR|CLOB|TEXT/.test(type)) return `${col.name}-${i + 1}`;
-  if (type === "" || type.includes("BLOB")) return `${col.name}-${i + 1}`;
   if (/REAL|FLOA|DOUB/.test(type)) return i + 1.5;
+  if (/CHAR|CLOB|TEXT|BLOB/.test(type) || type === "") return `${col.name}-${i + 1}`;
   return i + 1;
 }

@@ -6,5 +6,6 @@
  */
 export { discoverMigrations } from "./discover.ts";
 export { type LintOptions, lintMigrations, type MigrationFile } from "./engine.ts";
+export { type FileFacts, factsOf } from "./facts.ts";
 export { type Format, formatReport } from "./report.ts";
 export type { FileReport, Finding, Mode, Rule, Severity, Status } from "./types.ts";

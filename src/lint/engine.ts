@@ -7,11 +7,11 @@
  * @module
  */
 import { openDatabase, type SqlDb } from "../sqlite-driver.ts";
-import { childrenOf, type Step, schemaRules, staticRules } from "./rules.ts";
+import { copiedBefore, type FileFacts, factsOf, removedAt } from "./facts.ts";
+import { childrenOf, schemaRules, staticRules } from "./rules.ts";
 import { nonNullCount, rowCount, type Snapshot, snapshot } from "./schema.ts";
 import { type SeedResult, seed } from "./seed.ts";
-import { classify, splitStatements } from "./sql.ts";
-import { type FileReport, type Finding, type Mode, statusOf } from "./types.ts";
+import { type FileReport, type Finding, finding, type Mode, statusOf } from "./types.ts";
 
 export interface MigrationFile {
   /** Path shown in reports. */
@@ -42,41 +42,34 @@ export async function lintMigrations(files: MigrationFile[], opts: LintOptions):
 }
 
 async function lintOne(earlier: MigrationFile[], file: MigrationFile, opts: LintOptions): Promise<Finding[]> {
-  const steps: Step[] = splitStatements(file.sql).map((s) => ({ ...s, action: classify(s.code) }));
+  const facts = factsOf(file.sql);
   const db = await replay(earlier, opts.mode);
   try {
     const before = snapshot(db);
     const seeded = seed(db, before, opts.rows);
-    const findings = staticRules(steps, before, opts.mode);
-    const scope = tablesInScope(steps, before);
-    for (const table of scope) {
+    const findings = staticRules(facts, before, opts.mode);
+    for (const [table, line] of tablesInScope(facts, before)) {
       const reason = seeded.get(table);
-      if (reason) {
-        findings.push({
-          rule: "UNSEEDED",
-          severity: "warning",
-          line: firstMention(steps, table),
-          message: `could not seed "${table}" (${reason}), so data loss there was not checked.`,
-        });
-      }
+      if (reason)
+        findings.push(
+          finding("UNSEEDED", line, `could not seed "${table}" (${reason}), so data loss there was not checked.`),
+        );
     }
     const counts = measure(db, before, seeded);
     const failure = tryApply(db, file.sql, opts.mode);
-    if (failure !== null) {
+    if (failure === null) {
+      const after = snapshot(db);
+      findings.push(...lossRules(db, facts, before, after, counts, opts.mode), ...schemaRules(facts, before, after));
+    } else {
       const empty = await replay(earlier, opts.mode);
-      const alsoEmpty = tryApply(empty, file.sql, opts.mode) !== null;
+      const when =
+        tryApply(empty, file.sql, opts.mode) === null
+          ? `once tables have ${opts.rows} rows each`
+          : "on an empty database too";
       empty.close();
-      findings.push({
-        rule: "APPLY-FAIL",
-        severity: "error",
-        line: 1,
-        message: `${failure} (${alsoEmpty ? "fails on an empty database too" : `fails once tables have ${opts.rows} rows each`}).`,
-      });
-      return sortByLine(findings);
+      findings.push(finding("APPLY-FAIL", 1, `${failure} (fails ${when}).`));
     }
-    const after = snapshot(db);
-    findings.push(...lossRules(db, steps, before, after, counts), ...schemaRules(steps, before, after));
-    return sortByLine(findings);
+    return findings.sort((a, b) => a.line - b.line);
   } finally {
     db.close();
   }
@@ -93,43 +86,30 @@ async function replay(files: MigrationFile[], mode: Mode): Promise<SqlDb> {
 
 /** Applies a file the way the target does. Returns the error message, or null on success. */
 function tryApply(db: SqlDb, sql: string, mode: Mode): string | null {
+  const inTransaction = mode === "d1";
   try {
-    if (mode === "sqlite") {
-      db.exec(sql);
-      return null;
-    }
-    db.exec("BEGIN");
-    try {
-      db.exec(sql);
-      db.exec("COMMIT");
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
-    }
+    if (inTransaction) db.exec("BEGIN");
+    db.exec(sql);
+    if (inTransaction) db.exec("COMMIT");
     return null;
   } catch (err) {
+    if (inTransaction) db.exec("ROLLBACK");
     return err instanceof Error ? err.message : String(err);
   }
 }
 
-/** Tables the file names, plus everything that can lose rows through their foreign keys. */
-function tablesInScope(steps: Step[], before: Snapshot): string[] {
-  const scope = new Set<string>();
-  for (const { action: a } of steps) {
-    if ("table" in a) scope.add(a.table);
-    if (a.kind === "rename-table") scope.add(a.from);
-    if (a.kind === "copy") scope.add(a.from);
-  }
-  const queue = [...scope];
+/** Tables the file names, plus their foreign key descendants, each with the line to report it at. */
+function tablesInScope(facts: FileFacts, before: Snapshot): Map<string, number> {
+  const scope = new Map([...facts.namedAt].filter(([t]) => before.tables.has(t)));
+  const queue = [...scope.keys()];
   for (let t = queue.shift(); t !== undefined; t = queue.shift()) {
     for (const child of childrenOf(before, t)) {
-      if (!scope.has(child)) {
-        scope.add(child);
-        queue.push(child);
-      }
+      if (scope.has(child)) continue;
+      scope.set(child, scope.get(t) as number);
+      queue.push(child);
     }
   }
-  return [...scope].filter((t) => before.tables.has(t)).sort();
+  return scope;
 }
 
 interface Counts {
@@ -151,68 +131,70 @@ function measure(db: SqlDb, before: Snapshot, seeded: SeedResult): Counts {
   return counts;
 }
 
-function lossRules(db: SqlDb, steps: Step[], before: Snapshot, after: Snapshot, counts: Counts): Finding[] {
-  const removedAt = new Map<string, number>();
-  const copied = new Set<string>();
-  const updated = new Set<string>();
-  for (const s of steps) {
-    const a = s.action;
-    if ((a.kind === "drop-table" || a.kind === "delete") && !removedAt.has(a.table)) removedAt.set(a.table, s.line);
-    if (a.kind === "copy") copied.add(a.from);
-    if (a.kind === "update") updated.add(a.table);
-  }
-  const explicit = (t: string) => steps.some((s) => s.action.kind === "delete" && s.action.table === t);
+const CASCADE_FIX: Record<Mode, (table: string, parent: string) => string> = {
+  d1: (t, p) =>
+    `In D1 neither PRAGMA foreign_keys = OFF nor defer_foreign_keys prevents this; copy "${t}" first or avoid rebuilding "${p}".`,
+  sqlite: (t, p) => `Set PRAGMA foreign_keys = OFF before any BEGIN, or copy "${t}" first.`,
+};
+
+function lossRules(
+  db: SqlDb,
+  facts: FileFacts,
+  before: Snapshot,
+  after: Snapshot,
+  counts: Counts,
+  mode: Mode,
+): Finding[] {
   const lost = new Map<string, number>();
   for (const [table, n] of counts.rows) {
-    if (!after.tables.has(table) || explicit(table)) continue;
-    // A drop without a copy is intentional and reported by DROP-NO-BACKUP.
-    if (removedAt.has(table) && !copied.has(table)) continue;
+    if (!after.tables.has(table) || facts.deletedAt.has(table)) continue;
+    // A drop without an earlier copy is intentional and reported by DROP-NO-BACKUP.
+    const dropped = facts.droppedAt.get(table);
+    if (dropped !== undefined && !copiedBefore(facts, table, dropped)) continue;
     const now = rowCount(db, table);
     if (now < n) lost.set(table, n - now);
   }
+  const parentLost = (parent: string) => removedAt(facts, parent) !== undefined || lost.has(parent);
   const findings: Finding[] = [];
   for (const [table, missing] of lost) {
     const total = counts.rows.get(table) as number;
-    const cause = (before.tables.get(table)?.foreignKeys ?? []).find(
-      (fk) => fk.onDelete === "CASCADE" && fk.parent !== table && (removedAt.has(fk.parent) || lost.has(fk.parent)),
-    );
+    const cause = before.tables
+      .get(table)
+      ?.foreignKeys.find((fk) => fk.onDelete === "CASCADE" && fk.parent !== table && parentLost(fk.parent));
+    if (!cause) {
+      findings.push(
+        finding(
+          "ROW-LOSS",
+          facts.droppedAt.get(table) ?? 1,
+          `"${table}" lost ${missing} of ${total} rows, and no DELETE in this file targets it.`,
+        ),
+      );
+      continue;
+    }
     findings.push(
-      cause
-        ? {
-            rule: "CASCADE-LOSS",
-            severity: "error",
-            line: removedAt.get(cause.parent) ?? removedAt.get(table) ?? 1,
-            message: `"${table}" lost ${missing} of ${total} rows through ON DELETE CASCADE when rows of "${cause.parent}" were removed. In D1 neither PRAGMA foreign_keys = OFF nor defer_foreign_keys prevents this; copy "${table}" first or avoid rebuilding "${cause.parent}".`,
-          }
-        : {
-            rule: "ROW-LOSS",
-            severity: "error",
-            line: removedAt.get(table) ?? 1,
-            message: `"${table}" lost ${missing} of ${total} rows, and no DELETE in this file targets it.`,
-          },
+      finding(
+        "CASCADE-LOSS",
+        removedAt(facts, cause.parent) ?? facts.droppedAt.get(table) ?? 1,
+        `"${table}" lost ${missing} of ${total} rows through ON DELETE CASCADE when rows of "${cause.parent}" were removed. ${CASCADE_FIX[mode](table, cause.parent)}`,
+      ),
     );
   }
   for (const [key, n] of counts.linked) {
     const [table, column] = key.split("\0") as [string, string];
-    // Rows that are gone entirely are already reported above.
-    if (lost.has(table) || updated.has(table)) continue;
+    // Rows that are gone entirely are reported above; an UPDATE may null the column on purpose.
+    if (lost.has(table) || facts.updated.has(table)) continue;
     if (!after.tables.get(table)?.columns.some((c) => c.name === column)) continue;
     const fk = before.tables.get(table)?.foreignKeys.find((f) => f.from.includes(column));
-    if (!fk || !(removedAt.has(fk.parent) || lost.has(fk.parent))) continue;
+    if (!fk || !parentLost(fk.parent)) continue;
     const now = nonNullCount(db, table, column);
     if (now >= n) continue;
-    findings.push({
-      rule: "CASCADE-NULL",
-      severity: "error",
-      line: removedAt.get(fk.parent) ?? 1,
-      message: `"${table}"."${column}" lost ${n - now} of ${n} values through ON DELETE ${fk.onDelete} when rows of "${fk.parent}" were removed.`,
-    });
+    findings.push(
+      finding(
+        "CASCADE-NULL",
+        removedAt(facts, fk.parent) ?? 1,
+        `"${table}"."${column}" lost ${n - now} of ${n} values through ON DELETE ${fk.onDelete} when rows of "${fk.parent}" were removed.`,
+      ),
+    );
   }
   return findings;
 }
-
-function firstMention(steps: Step[], table: string): number {
-  return steps.find((s) => s.code.includes(table))?.line ?? 1;
-}
-
-const sortByLine = (findings: Finding[]) => findings.sort((a, b) => a.line - b.line);

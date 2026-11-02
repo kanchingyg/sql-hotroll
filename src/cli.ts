@@ -1,5 +1,5 @@
 /**
- * The `sql-hotroll` command. Runs on Node 22.5+ (`node:sqlite`) and Bun (`bun:sqlite`).
+ * The `sql-hotroll` command. Runs on Node 22.13+ (`node:sqlite`) and Bun (`bun:sqlite`).
  * Every command works on local files only; there is no remote database access.
  *
  * @module

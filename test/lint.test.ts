@@ -100,6 +100,21 @@ describe("dynamic engine", () => {
     expect(r?.status).toBe("OK");
   });
 
+  test("in sqlite mode, a cascade inside BEGIN gets the sqlite fix, not the D1 one", async () => {
+    const [, r] = await lint([PARENT_CHILD, `BEGIN;\nPRAGMA foreign_keys = OFF;${rebuildA("")}\nCOMMIT;`], "sqlite");
+    const loss = r?.findings.find((f) => f.rule === "CASCADE-LOSS");
+    expect(loss?.message).toContain("before any BEGIN");
+    expect(loss?.message).not.toContain("D1");
+  });
+
+  test("a copy after the drop is not a backup", async () => {
+    const [, r] = await lint([
+      "CREATE TABLE c (id INTEGER PRIMARY KEY, note TEXT);",
+      "ALTER TABLE c DROP COLUMN note;\nCREATE TABLE c_copy AS SELECT * FROM c;",
+    ]);
+    expect(r?.findings.map((f) => [f.rule, f.line])).toEqual([["DROP-NO-BACKUP", 1]]);
+  });
+
   test("a rebuild that copies fewer rows is ROW-LOSS on the rebuilt table", async () => {
     const [, r] = await lint([
       "CREATE TABLE a (id INTEGER PRIMARY KEY, name TEXT NOT NULL);",

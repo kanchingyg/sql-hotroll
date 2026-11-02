@@ -25,6 +25,20 @@ export type Rule =
 
 export type Severity = "error" | "warning";
 
+/** Errors mean rows are lost or the file does not apply; warnings mean a risk the run could not show. */
+export const SEVERITY: Record<Rule, Severity> = {
+  "CASCADE-LOSS": "error",
+  "CASCADE-NULL": "error",
+  "ROW-LOSS": "error",
+  "APPLY-FAIL": "error",
+  UNSEEDED: "warning",
+  "FK-PRAGMA-NOOP": "warning",
+  "DROP-PARENT-NO-DEFER": "warning",
+  "DROP-NO-BACKUP": "warning",
+  "TYPE-CHANGE": "warning",
+  "TRIGGER-LOST": "warning",
+};
+
 export interface Finding {
   rule: Rule;
   severity: Severity;
@@ -40,6 +54,10 @@ export interface FileReport {
   file: string;
   status: Status;
   findings: Finding[];
+}
+
+export function finding(rule: Rule, line: number, message: string): Finding {
+  return { rule, severity: SEVERITY[rule], line, message };
 }
 
 export function statusOf(findings: Finding[]): Status {
