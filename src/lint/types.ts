@@ -16,9 +16,11 @@ export type Rule =
   | "CASCADE-NULL"
   | "ROW-LOSS"
   | "APPLY-FAIL"
+  | "FK-ORPHAN"
   | "UNSEEDED"
   | "FK-PRAGMA-NOOP"
   | "DROP-PARENT-NO-DEFER"
+  | "DROP-PARENT-CASCADE"
   | "DROP-NO-BACKUP"
   | "TYPE-CHANGE"
   | "TRIGGER-LOST";
@@ -31,9 +33,11 @@ export const SEVERITY: Record<Rule, Severity> = {
   "CASCADE-NULL": "error",
   "ROW-LOSS": "error",
   "APPLY-FAIL": "error",
+  "FK-ORPHAN": "error",
   UNSEEDED: "warning",
   "FK-PRAGMA-NOOP": "warning",
   "DROP-PARENT-NO-DEFER": "warning",
+  "DROP-PARENT-CASCADE": "warning",
   "DROP-NO-BACKUP": "warning",
   "TYPE-CHANGE": "warning",
   "TRIGGER-LOST": "warning",

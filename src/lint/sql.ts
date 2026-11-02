@@ -10,6 +10,8 @@ export interface Statement {
   line: number;
   /** The statement with comments removed and string literal contents blanked, whitespace collapsed. */
   code: string;
+  /** The statement exactly as written, without the closing `;`, for executing it on its own. */
+  sql: string;
 }
 
 /**
@@ -20,11 +22,12 @@ export function splitStatements(source: string): Statement[] {
   const out: Statement[] = [];
   let code = "";
   let start = 0;
+  let from = 0;
   let line = 1;
   let i = 0;
   const flush = () => {
     const text = code.replace(/\s+/g, " ").trim();
-    if (text) out.push({ line: start, code: text });
+    if (text) out.push({ line: start, code: text, sql: source.slice(from, i) });
     code = "";
     start = 0;
   };
@@ -44,7 +47,10 @@ export function splitStatements(source: string): Statement[] {
       continue;
     }
     if (ch === "\n") line++;
-    if (start === 0 && !/\s/.test(ch)) start = line;
+    if (start === 0 && !/\s/.test(ch)) {
+      start = line;
+      from = i;
+    }
     if (ch === "'" || ch === '"' || ch === "`" || ch === "[") {
       const close = ch === "[" ? "]" : ch;
       let j = i + 1;
@@ -112,6 +118,8 @@ const ALTER_TABLE = new RegExp(String.raw`^ALTER\s+TABLE\s+${NAME}`, "i");
 const DELETE_FROM = new RegExp(String.raw`^DELETE\s+FROM\s+${NAME}`, "i");
 const UPDATE = new RegExp(String.raw`^UPDATE\s+(?:OR\s+\w+\s+)?${NAME}`, "i");
 const COPIES_FROM = new RegExp(String.raw`^(?:INSERT|REPLACE|CREATE)\b.*\bSELECT\b.*\bFROM\s+${NAME}`, "i");
+const BEGIN = /^BEGIN\b/i;
+const END_TRANSACTION = /^(?:COMMIT|END|ROLLBACK)\b(?!\s+TO\b)(?!.*\bTO\s+SAVEPOINT\b)/i;
 const PRAGMA = /^PRAGMA\s+(?:\w+\.)?(\w+)\s*(?:=\s*|\(\s*)['"]?(\w+)/i;
 
 /** What one statement does, as far as the rules care. */
@@ -126,6 +134,8 @@ export type Action =
   | { kind: "update"; table: string }
   | { kind: "copy"; from: string }
   | { kind: "pragma"; name: string; value: string }
+  | { kind: "begin" }
+  | { kind: "end-transaction" }
   | { kind: "other" };
 
 const n = (m: RegExpMatchArray, i: number) => unquote(m[i] as string);
@@ -141,6 +151,8 @@ const SHAPES: [RegExp, (m: RegExpMatchArray) => Action][] = [
   [CREATE_TABLE, (m) => ({ kind: "create-table", table: n(m, 1) })],
   [DELETE_FROM, (m) => ({ kind: "delete", table: n(m, 1) })],
   [UPDATE, (m) => ({ kind: "update", table: n(m, 1) })],
+  [BEGIN, () => ({ kind: "begin" })],
+  [END_TRANSACTION, () => ({ kind: "end-transaction" })],
   [PRAGMA, (m) => ({ kind: "pragma", name: (m[1] as string).toLowerCase(), value: (m[2] as string).toLowerCase() })],
 ];
 

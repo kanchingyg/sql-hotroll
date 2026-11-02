@@ -38,9 +38,10 @@
     "lint": "biome check",
     "format": "biome check --write",
     "check": "bun run lint && bun run typecheck && bun test",
-    "build": "bun build src/bin.ts --target node --external bun:sqlite --outfile dist/bin.js",
+    "build": "bun build src/bin.ts --target node --outfile dist/bin.js",
     "prepack": "bun run build",
-    "verify:physics": "bun run testbeds/run-all.ts"
+    "verify:physics": "bun run testbeds/run-all.ts",
+    "prepare": "bun run build"
   },
   "repository": {
     "type": "git",

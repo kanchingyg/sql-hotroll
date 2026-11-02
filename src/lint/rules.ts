@@ -24,19 +24,32 @@ const OFF = new Set(["off", "0", "false", "no"]);
 const ON = new Set(["on", "1", "true", "yes"]);
 
 const FK_PRAGMA_NOOP =
-  "PRAGMA foreign_keys = OFF does nothing here: D1 runs each migration file in one transaction and SQLite ignores this pragma inside a transaction. Foreign keys and ON DELETE actions stay on.";
+  "PRAGMA foreign_keys = OFF does nothing here: it runs inside a transaction (D1 wraps each migration file in one), and SQLite ignores this pragma inside a transaction. Foreign keys and ON DELETE actions stay on.";
+
+/** Foreign key state while reading a file top to bottom, as SQLite would track it. */
+interface FkState {
+  /** True inside a transaction. D1 files are always inside one. */
+  inTransaction: boolean;
+  /** False only after PRAGMA foreign_keys = OFF outside a transaction. */
+  enforced: boolean;
+  /** PRAGMA defer_foreign_keys; SQLite switches it off at every COMMIT or ROLLBACK. */
+  deferred: boolean;
+}
 
 /** Rules that read statements in order, tracking the foreign key pragmas as they change. */
 export function staticRules(facts: FileFacts, before: Snapshot, mode: Mode): Finding[] {
   const findings: Finding[] = [];
-  let enforced = true;
-  let deferred = false;
-  for (const { line, action: a } of facts.steps) {
+  const fk: FkState = { inTransaction: mode === "d1", enforced: true, deferred: false };
+  for (const [i, { line, action: a }] of facts.steps.entries()) {
+    if (a.kind === "begin") fk.inTransaction = true;
+    if (a.kind === "end-transaction" && mode === "sqlite") Object.assign(fk, { inTransaction: false, deferred: false });
     if (a.kind === "pragma" && a.name === "foreign_keys" && OFF.has(a.value)) {
-      if (mode === "d1") findings.push(finding("FK-PRAGMA-NOOP", line, FK_PRAGMA_NOOP));
-      else enforced = false;
+      if (fk.inTransaction) findings.push(finding("FK-PRAGMA-NOOP", line, FK_PRAGMA_NOOP));
+      else fk.enforced = false;
     }
-    if (a.kind === "pragma" && a.name === "defer_foreign_keys") deferred = ON.has(a.value);
+    if (a.kind === "pragma" && a.name === "foreign_keys" && ON.has(a.value) && !fk.inTransaction) fk.enforced = true;
+    // Outside a transaction each statement commits on its own, which switches deferral back off.
+    if (a.kind === "pragma" && a.name === "defer_foreign_keys") fk.deferred = fk.inTransaction && ON.has(a.value);
     if ((a.kind !== "drop-table" && a.kind !== "drop-column") || !before.tables.has(a.table)) continue;
     const backedUp = copiedBefore(facts, a.table, line);
     if (a.kind === "drop-column") {
@@ -50,16 +63,7 @@ export function staticRules(facts: FileFacts, before: Snapshot, mode: Mode): Fin
         );
       continue;
     }
-    const children = childrenOf(before, a.table);
-    if (children.length > 0 && enforced && !deferred) {
-      findings.push(
-        finding(
-          "DROP-PARENT-NO-DEFER",
-          line,
-          `drops "${a.table}", which ${children.map((n) => `"${n}"`).join(", ")} reference, without PRAGMA defer_foreign_keys = on first. Children with NO ACTION make the drop fail. Deferring avoids that failure but does not stop ON DELETE CASCADE or SET NULL.`,
-        ),
-      );
-    }
+    if (fk.enforced) findings.push(...dropParentRules(facts, before, a.table, line, fk, laterDeferOff(facts, i), mode));
     if (!backedUp)
       findings.push(
         finding(
@@ -71,6 +75,64 @@ export function staticRules(facts: FileFacts, before: Snapshot, mode: Mode): Fin
   }
   return findings;
 }
+
+const laterDeferOff = (facts: FileFacts, i: number) =>
+  facts.steps
+    .slice(i + 1)
+    .some(({ action: a }) => a.kind === "pragma" && a.name === "defer_foreign_keys" && OFF.has(a.value));
+
+/**
+ * Dropping a referenced table deletes its rows first, so what happens depends on each child's
+ * ON DELETE action. Children copied before the drop are being restored and are left out.
+ */
+function dropParentRules(
+  facts: FileFacts,
+  before: Snapshot,
+  parent: string,
+  line: number,
+  fk: FkState,
+  deferOffLater: boolean,
+  mode: Mode,
+): Finding[] {
+  const findings: Finding[] = [];
+  const children = [...before.tables.values()].flatMap((t) =>
+    t.name === parent || copiedBefore(facts, t.name, line)
+      ? []
+      : t.foreignKeys.filter((k) => k.parent === parent).map((k) => ({ child: t.name, action: k.onDelete })),
+  );
+  const acting = children.filter((c) => ACTING.has(c.action));
+  const blocking = children.filter((c) => !ACTING.has(c.action));
+  if (acting.length > 0) {
+    const whatever =
+      mode === "d1" ? "in D1 whatever pragmas the file sets" : "unless PRAGMA foreign_keys = OFF runs before any BEGIN";
+    findings.push(
+      finding(
+        "DROP-PARENT-CASCADE",
+        line,
+        `drops "${parent}"; ${describe(acting)} will lose rows or foreign key values ${whatever}. Use ALTER TABLE ADD/RENAME/DROP COLUMN if they are enough; otherwise, in this same file, copy the children (and their own children) to a backup table before the drop and insert them back after the rename.`,
+      ),
+    );
+  }
+  if (blocking.length > 0 && !(fk.deferred && deferOffLater)) {
+    const advice = fk.deferred
+      ? `PRAGMA defer_foreign_keys = on alone does not help: SQLite counts the violations from the drop and fails the COMMIT even if the rebuild restores every key. Set it = off after the rebuild`
+      : `Put PRAGMA defer_foreign_keys = on before the drop and = off once the replacement table is in place`;
+    findings.push(
+      finding(
+        "DROP-PARENT-NO-DEFER",
+        line,
+        `drops "${parent}", which ${describe(blocking)} reference. ${advice}. Setting it off discards pending foreign key violations, so run PRAGMA foreign_key_check after the migration.`,
+      ),
+    );
+  }
+  return findings;
+}
+
+/** ON DELETE actions that change child rows when the parent's rows go. */
+const ACTING = new Set(["CASCADE", "SET NULL", "SET DEFAULT"]);
+
+const describe = (children: { child: string; action: string }[]) =>
+  children.map((c) => `"${c.child}" (ON DELETE ${c.action})`).join(", ");
 
 /** Tables other than `parent` with a foreign key to it. */
 export function childrenOf(schema: Snapshot, parent: string): string[] {
