@@ -22,14 +22,16 @@ bunx jsr add @kanchingyg/hotroll # JSR
 deno add jsr:@kanchingyg/hotroll
 ```
 
-The package ships TypeScript sources. It loads in Bun, Deno, and Cloudflare Workers (through wrangler's bundler). Node does not strip types inside `node_modules`, so plain Node needs a bundler.
+From 0.2.0, npm gets compiled JavaScript with `.d.ts` types, so every import below loads in Node 22.13+ and Bun; JSR gets the TypeScript sources for Deno. Cloudflare Workers are not tested. `sql-hotroll/d1-adapter` is written against `bun:sqlite`: given a file path it needs Bun; on other runtimes pass it a compatible database.
 
 ## Modules
 
 | Import | Contents |
 |---|---|
+| `sql-hotroll/lint` | Finds data loss in SQLite and D1 migration files (also the `sql-hotroll lint` command) |
+| `sql-hotroll/expand` | Expand/contract through versioned views on a SQLite file |
 | `sql-hotroll/lenses` | Split/merge and rename lenses, and composition of lenses |
-| `sql-hotroll/d1-adapter` | Trigger SQL for D1 and SQLite, batched backfill, introspection of generated columns |
+| `sql-hotroll/d1-adapter` | Trigger SQL for D1 and SQLite, batched backfill, introspection of generated columns (runs on a `bun:sqlite` database) |
 | `sql-hotroll/postgres-adapter` | Trigger SQL for PostgreSQL and a check for DDL that takes heavy locks |
 | `sql-hotroll/ast-rewriter` | Sorts a DDL change into tiers (generated column, view, copy) and rewrites table names per version |
 | `sql-hotroll/client-quiescence` | Tracks in-flight requests per client and reports when a client can switch version |
@@ -43,7 +45,7 @@ Only the adapters touch a database. Nothing here runs a migration for you; the c
 
 - A lens works when the change can be undone row by row (`up(down(x)) = x`). Aggregations, one-way hashes, and changes with side effects outside the table need a multi-step expand/contract instead.
 - D1 runs each migration file in one transaction, where `PRAGMA foreign_keys = OFF` has no effect. Rebuilding a table that other tables reference with ON DELETE CASCADE deletes their rows ([workers-sdk#5438](https://github.com/cloudflare/workers-sdk/issues/5438)).
-- Measurements in the paper come from local SQLite, D1 through `wrangler --local`, and PostgreSQL 17 on one machine. They are not production numbers.
+- Measurements in the paper come from in-process SQLite in WAL mode and PostgreSQL 17.11 on one machine. They are not production numbers. The SQLite runs stand in for the engine D1 uses; neither D1 nor `wrangler --local` was measured.
 
 ## Paper and data
 

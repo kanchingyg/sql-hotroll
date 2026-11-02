@@ -23,16 +23,16 @@
 
 ## Quickstart
 
-The CLI is not in a release yet; npm `sql-hotroll@0.1.7` and JSR `@kanchingyg/hotroll@0.1.7` contain the library only. Until the next release, run it from a clone. `npm install` builds `dist/bin.js` through the `prepare` script, which needs [Bun](https://bun.sh) on the path; the built CLI runs on Node 22.13+ or Bun.
+The CLI is not in a release yet; npm `sql-hotroll@0.1.7` and JSR `@kanchingyg/hotroll@0.1.7` contain the library only. Until 0.2.0 is out, run it from a clone. `npm install` compiles `dist/` with TypeScript through the `prepare` script; the built CLI runs on Node 22.13+ or Bun.
 
 ```bash
 git clone https://github.com/kanchingyg/sql-hotroll && cd sql-hotroll && npm install
-npx . lint path/to/project                      # reads wrangler.toml/.jsonc, else path/to/project/migrations
+npx . lint path/to/project                      # wrangler.toml/.jsonc, else migrations/, else *.sql
 npx . lint path/to/drizzle                      # drizzle-kit: 0000_x.sql or <name>/migration.sql
 npx . lint path/to/migrations/0002_change.sql   # one file, after replaying the files before it
 ```
 
-`lint` with no path looks at the current directory. A wrangler config with several D1 bindings is linted once per `migrations_dir` / `migrations_pattern`. After the release this becomes `npx sql-hotroll lint`.
+`lint` with no path looks at the current directory. A directory is read in this order: the wrangler config's `migrations_dir` (default `migrations/`), then a `migrations/` folder, then the `.sql` files in the directory itself, so a `schema.sql` next to `migrations/` is not mistaken for the migrations. A wrangler config with several D1 bindings is linted once per `migrations_dir` / `migrations_pattern`. After the release this becomes `npx sql-hotroll lint`.
 
 In GitHub Actions, `--format github` turns findings into annotations on the pull request. The CLI needs `node:sqlite`, so pin Node 22.13 or later (not yet tried on a hosted runner):
 
@@ -52,6 +52,7 @@ For each migration file, in the order wrangler applies them: build the schema fr
 | Rule | Level | Meaning |
 |---|---|---|
 | CASCADE-LOSS | error | A table lost rows through ON DELETE CASCADE when its parent was dropped or rebuilt |
+| CASCADE-DELETE | warning | A DELETE of parent rows also deleted (or set to NULL) child rows through ON DELETE CASCADE / SET NULL; often intended |
 | CASCADE-NULL | error | Foreign key values were set to NULL by ON DELETE SET NULL / SET DEFAULT |
 | ROW-LOSS | error | A table lost rows that no DELETE in the file removed (for example a rebuild that copies fewer rows) |
 | FK-ORPHAN | error | After the file, rows point at parent rows or a parent table that no longer exist (`PRAGMA foreign_key_check`) |
@@ -81,6 +82,7 @@ I checked the CASCADE point with `wrangler 4.156.2 d1 migrations apply --local` 
 - Seeded rows are synthetic. A migration whose effect depends on real values (a `WHERE` on a status column, say) can pass here and still lose data.
 - Statement shapes (DROP TABLE, copies, renames) are read with patterns, not a full SQL parser. Row counts come from SQLite itself.
 - The local SQLite version (3.53 under Bun, 3.50 under Node 22.20) differs from D1's. Features D1 rejects are not flagged.
+- drizzle-kit migrations are ordered by file name, not by `meta/_journal.json`.
 - The file is replayed for every later file, so time grows with the square of the number of files (about 0.6 s for 100 small files, 4.7 s for 300).
 
 ## Expand/contract on a live SQLite file
@@ -94,11 +96,17 @@ sql-hotroll backfill --db app.sqlite --table users
 sql-hotroll contract --db app.sqlite --table users            # once no session uses users_v1
 ```
 
+`split-name.json` names the table, its key, the versions, and one operation per new column, with the SQL that computes it from the old row:
+
+```json
+{"table":"users","key":"id","from":1,"to":2,"ops":[{"op":"add","column":"first_name","type":"TEXT","up":"substr(full_name,1,instr(full_name,' ')-1)"},{"op":"add","column":"last_name","type":"TEXT","up":"substr(full_name,instr(full_name,' ')+1)"}]}
+```
+
 `adopt` takes `--schema-version <n>` to start from a version other than 1. For D1 this works only on the local file under `.wrangler/state`. Updates through the old view recompute the new columns, which is correct only when `up(down(x)) = x`; upserts do not work on views.
 
 ## Library
 
-`import { lintMigrations } from "sql-hotroll/lint"` and the other library entry points (`sql-hotroll`, `/expand`, the adapters) are TypeScript sources. They load in Bun and Deno; Node refuses to strip types inside `node_modules`, so from Node use the CLI.
+`import { lintMigrations } from "sql-hotroll/lint"` works from Node 22.13+, Bun, and Deno, as do `sql-hotroll`, `/expand`, and the other subpaths: npm gets compiled JavaScript with `.d.ts` types, JSR gets the TypeScript sources. `D1StorageAdapter` is written against `bun:sqlite`; given a path it needs Bun, elsewhere pass it a compatible database.
 
 ## Research
 
@@ -119,7 +127,7 @@ python3 proofs/prove_hot_roll_safety.py && python3 proofs/verify_lenses_z3.py
 ```bash
 bun install
 bun run check      # biome on the CLI code, tsc --noEmit, bun test
-bun run build      # dist/bin.js for Node; also runs on npm pack
+bun run build      # dist/: JavaScript and .d.ts for every export; also runs on npm install and npm pack
 ```
 
 ## AI assistance
