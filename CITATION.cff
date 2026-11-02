@@ -3,7 +3,7 @@ message: "If you use SQ-HotRoll or its formal verification and benchmark artifac
 title: "Session-Quiescence-Gated Progressive Schema Evolution with Inline Complement Lenses for Stateful Edge and Relational Databases"
 type: software
 authors:
-  - family-names: "Cerrutti"
+  - family-names: "Cerrutti Satto"
     given-names: "Augusto"
     affiliation: "Independent Systems Researcher"
     orcid: "https://orcid.org/0009-0005-7279-8319"

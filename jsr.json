@@ -1,7 +1,7 @@
 {
   "name": "@kanchingyg/hotroll",
   "version": "0.1.7",
-  "description": "Session-quiescence-gated progressive SQL schema evolution with bijective inline complement lenses, zero-trust SLSA v1.0 DSSE hardware quorum, and DEC Mode 2026 TUI for Cloudflare D1, SQLite, and PostgreSQL 17.",
+  "description": "Find data loss in SQLite and Cloudflare D1 migrations before they run, plus expand/contract and session-quiescence schema evolution.",
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
@@ -16,7 +16,9 @@
     "./hardware-auth": "./src/hardware-auth.ts",
     "./tui": "./src/tui.ts",
     "./cdn-range-gate": "./src/cdn-range-gate.ts",
-    "./polyglot-sql": "./src/polyglot-sql.ts"
+    "./polyglot-sql": "./src/polyglot-sql.ts",
+    "./lint": "./src/lint/index.ts",
+    "./expand": "./src/expand/sqlite.ts"
   },
   "publish": {
     "include": [
