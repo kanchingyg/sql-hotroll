@@ -21,16 +21,24 @@ export interface MigrationFile {
 }
 
 export interface LintOptions {
-  mode: Mode;
-  /** Synthetic rows per table. */
-  rows: number;
+  /** Default `"d1"`. */
+  mode?: Mode;
+  /** Synthetic rows per table. Default 3; 0 checks nothing. */
+  rows?: number;
 }
+
+type Options = Required<LintOptions>;
 
 /**
  * Lints `files` in order and reports on those from index `from` on (earlier files only build the
  * schema). Once one fails to apply, later files are SKIPPED.
  */
-export async function lintMigrations(files: MigrationFile[], opts: LintOptions, from = 0): Promise<FileReport[]> {
+export async function lintMigrations(
+  files: MigrationFile[],
+  options: LintOptions = {},
+  from = 0,
+): Promise<FileReport[]> {
+  const opts: Options = { mode: options.mode ?? "d1", rows: options.rows ?? 3 };
   const reports: FileReport[] = [];
   let broken = false;
   for (const [i, file] of files.entries()) {
@@ -52,13 +60,13 @@ interface Seeded {
   seeded: SeedResult;
 }
 
-async function seededAfter(earlier: MigrationFile[], opts: LintOptions): Promise<Seeded> {
+async function seededAfter(earlier: MigrationFile[], opts: Options): Promise<Seeded> {
   const db = await replay(earlier, opts.mode);
   const before = snapshot(db);
   return { db, before, seeded: seed(db, before, opts.rows) };
 }
 
-async function lintOne(earlier: MigrationFile[], file: MigrationFile, opts: LintOptions): Promise<Finding[]> {
+async function lintOne(earlier: MigrationFile[], file: MigrationFile, opts: Options): Promise<Finding[]> {
   const facts = factsOf(file.sql);
   const { db, before, seeded } = await seededAfter(earlier, opts);
   let control: Seeded | undefined;
@@ -98,7 +106,7 @@ async function lintOne(earlier: MigrationFile[], file: MigrationFile, opts: Lint
 }
 
 /** Whether a failing file also fails without seeded rows. */
-async function failsWhen(earlier: MigrationFile[], facts: FileFacts, opts: LintOptions): Promise<string> {
+async function failsWhen(earlier: MigrationFile[], facts: FileFacts, opts: Options): Promise<string> {
   const empty = await replay(earlier, opts.mode);
   try {
     return applySteps(empty, facts.steps, opts.mode).failure

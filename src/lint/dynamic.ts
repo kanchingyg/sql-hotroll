@@ -42,11 +42,37 @@ export interface Runs {
   controlApplied: Applied;
 }
 
-const CASCADE_FIX: Record<Mode, string> = {
+const REBUILD_FIX: Record<Mode, string> = {
   d1: "In D1 no pragma prevents this. Use ALTER TABLE ADD/RENAME/DROP COLUMN if they are enough; otherwise copy the child rows to a backup table before the drop and insert them back after the rename, in the same file.",
   sqlite:
     "Set PRAGMA foreign_keys = OFF before any BEGIN, or copy the child rows to a backup table before the drop and insert them back after the rename.",
 };
+
+/** How the file removed a parent's rows, which decides the rule and the advice for its children. */
+type Removal =
+  | { kind: "delete"; root: string }
+  | { kind: "refill" }
+  | { kind: "rebuild" }
+  | { kind: "drop" }
+  | { kind: "cascade" }
+  | { kind: "implicit" };
+
+function advice(removal: Removal, parent: string, child: string, mode: Mode): string {
+  switch (removal.kind) {
+    case "refill":
+      return `The file re-inserted the "${parent}" rows; the "${child}" rows are gone. Update "${parent}" in place, or copy the "${child}" rows to a backup table before the DELETE and insert them back after.`;
+    case "rebuild":
+      return REBUILD_FIX[mode];
+    case "drop":
+      return `Dropping "${parent}" deletes these rows. If that is intended, delete them (or drop "${child}") first; if not, copy them to a backup table before the drop.`;
+    case "cascade":
+      return `"${parent}" itself lost rows through ON DELETE CASCADE; fixing that keeps these rows too.`;
+    case "implicit":
+      return `No DELETE or DROP of "${parent}" is in the file, so a statement removed its rows implicitly: INSERT OR REPLACE and REPLACE delete the conflicting row first. Use INSERT ... ON CONFLICT DO UPDATE instead.`;
+    case "delete":
+      return "";
+  }
+}
 
 export function lossRules(
   runs: Runs,
@@ -78,27 +104,39 @@ export function lossRules(
     }
   }
   const parentHit = (parent: string) => removedAt(facts, parent) !== undefined || byAction.has(parent);
-  const deletedOnly = deletedOnlyTables(facts, before, byAction);
+  // A DELETE whose rows the file puts back (a refresh) lost the children; only a net delete is intended.
+  const refilled = (t: string) => after.tables.has(t) && rowCount(runs.real, t) >= (counts.rows.get(t) ?? Infinity);
+  const deletedFrom = deletedOnlyTables(facts, before, byAction, refilled);
+  const removal = (parent: string): Removal => {
+    const root = deletedFrom.get(parent);
+    if (root !== undefined) return { kind: "delete", root };
+    if (facts.deletedAt.has(parent) && !facts.droppedAt.has(parent)) return { kind: "refill" };
+    if (facts.droppedAt.has(parent)) return after.tables.has(parent) ? { kind: "rebuild" } : { kind: "drop" };
+    return byAction.has(parent) ? { kind: "cascade" } : { kind: "implicit" };
+  };
+  const via = (parent: string, root: string) =>
+    parent === root ? `deleting rows of "${parent}"` : `the cascade from "${root}" through "${parent}"`;
   for (const [table, missing] of byAction) {
     const fks = before.tables.get(table)?.foreignKeys ?? [];
     const cause =
       fks.find((fk) => fk.onDelete === "CASCADE" && fk.parent !== table && parentHit(fk.parent)) ??
       fks.find((fk) => fk.onDelete === "CASCADE");
-    const parent = cause ? `"${cause.parent}"` : "a parent table";
     const line = (cause && removedAt(facts, cause.parent)) ?? 1;
     const of = `${missing} of ${counts.rows.get(table)} rows`;
+    const how: Removal = cause ? removal(cause.parent) : { kind: "implicit" };
+    const parent = cause?.parent ?? "a parent table";
     findings.push(
-      cause && deletedOnly.has(cause.parent)
+      how.kind === "delete"
         ? finding(
             "CASCADE-DELETE",
             line,
-            `deleting rows of ${parent} also deletes ${of} of "${table}" through ON DELETE CASCADE. Intended? If not, delete or re-point the "${table}" rows first.`,
+            `${via(parent, how.root)} also deletes ${of} of "${table}" through ON DELETE CASCADE. Intended? If not, delete or re-point the "${table}" rows first.`,
             table,
           )
         : finding(
             "CASCADE-LOSS",
             line,
-            `"${table}" lost ${of} through ON DELETE CASCADE when rows of ${parent} were removed. ${CASCADE_FIX[mode]}`,
+            `"${table}" lost ${of} through ON DELETE CASCADE when rows of "${parent}" were removed. ${advice(how, parent, table, mode)}`,
             table,
           ),
     );
@@ -113,9 +151,10 @@ export function lossRules(
     const fk = before.tables.get(table)?.foreignKeys.find((f) => f.from.includes(column));
     const line = (fk && removedAt(facts, fk.parent)) ?? 1;
     const what = `${control - real} of ${n} "${table}"."${column}" values through ON DELETE ${fk?.onDelete ?? "SET NULL"}`;
+    const how: Removal = fk ? removal(fk.parent) : { kind: "implicit" };
     findings.push(
-      fk && deletedOnly.has(fk.parent)
-        ? finding("CASCADE-DELETE", line, `deleting rows of "${fk.parent}" also clears ${what}. Intended?`, table)
+      how.kind === "delete"
+        ? finding("CASCADE-DELETE", line, `${via(fk?.parent ?? "", how.root)} also clears ${what}. Intended?`, table)
         : finding("CASCADE-NULL", line, `lost ${what} when rows of "${fk?.parent}" were removed.`, table),
     );
   }
@@ -124,10 +163,17 @@ export function lossRules(
 
 /**
  * Tables whose rows went only through the file's own DELETE statements, directly or through a
- * cascade from such a table, and never through a DROP. Their cascades are intended, most likely.
+ * cascade from such a table, and never through a DROP, mapped to the table the DELETE named.
+ * A table the file refilled after deleting from it is left out. Their cascades are intended, most likely.
  */
-function deletedOnlyTables(facts: FileFacts, before: Snapshot, byAction: Map<string, number>): Set<string> {
-  const out = new Set([...facts.deletedAt.keys()].filter((t) => !facts.droppedAt.has(t)));
+function deletedOnlyTables(
+  facts: FileFacts,
+  before: Snapshot,
+  byAction: Map<string, number>,
+  refilled: (table: string) => boolean,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const t of facts.deletedAt.keys()) if (!facts.droppedAt.has(t) && !refilled(t)) out.set(t, t);
   for (let grew = true; grew; ) {
     grew = false;
     for (const table of byAction.keys()) {
@@ -135,8 +181,9 @@ function deletedOnlyTables(facts: FileFacts, before: Snapshot, byAction: Map<str
       const parents = (before.tables.get(table)?.foreignKeys ?? [])
         .map((fk) => fk.parent)
         .filter((p) => p !== table && (removedAt(facts, p) !== undefined || byAction.has(p)));
-      if (parents.length > 0 && parents.every((p) => out.has(p))) {
-        out.add(table);
+      const roots = new Set(parents.map((p) => out.get(p)));
+      if (parents.length > 0 && !roots.has(undefined)) {
+        out.set(table, [...roots][0] as string);
         grew = true;
       }
     }

@@ -512,3 +512,49 @@ describe("red team round 2 regressions", () => {
     expect(files[1]?.findings.map((f) => f.rule)).toEqual(["CASCADE-DELETE"]);
   });
 });
+
+describe("red team round 3 regressions", () => {
+  const RT3 = join(FIXTURES, "red-team-3");
+  const run = (dir: string) => {
+    const r = cli("lint", join(RT3, dir), "--json");
+    return { code: r.code, files: (JSON.parse(r.out) as { files: FileReport[] }).files };
+  };
+  const only = (files: FileReport[]) => files[1]?.findings ?? [];
+
+  test("R3-B1: DELETE then re-INSERT of a CASCADE parent is CASCADE-LOSS", () => {
+    const { code, files } = run("d1-refresh");
+    expect(code).toBe(1);
+    const [f] = only(files);
+    expect([f?.rule, f?.table]).toEqual(["CASCADE-LOSS", "c"]);
+    expect(f?.message).toContain('re-inserted the "p" rows');
+  });
+
+  test("INSERT OR REPLACE gets REPLACE advice, not rebuild advice", () => {
+    const { code, files } = run("d2-replace");
+    expect(code).toBe(1);
+    const [f] = only(files);
+    expect(f?.rule).toBe("CASCADE-LOSS");
+    expect(f?.message).toContain("ON CONFLICT DO UPDATE");
+    expect(f?.message).not.toContain("rename");
+  });
+
+  test("a grandchild of a net DELETE names the cascade it came through", () => {
+    const { code, files } = run("d3-grandchild");
+    expect(code).toBe(0);
+    const messages = only(files).map((f) => [f.rule, f.message]);
+    expect(messages.map(([r]) => r)).toEqual(["CASCADE-DELETE", "CASCADE-DELETE"]);
+    expect(messages.some(([, m]) => m?.includes('the cascade from "p" through "c"'))).toBe(true);
+  });
+
+  test("a plain DROP of a CASCADE parent gets drop advice", async () => {
+    const [, r] = await lint([PARENT_CHILD, "DROP TABLE a;"]);
+    const f = r?.findings.find((x) => x.rule === "CASCADE-LOSS");
+    expect(f?.message).toContain('Dropping "a" deletes these rows');
+  });
+
+  test("lintMigrations defaults to D1 mode with 3 rows", async () => {
+    const files = [PARENT_CHILD, rebuildA("")].map((sql, i) => ({ path: `${i}.sql`, sql }));
+    const [, r] = await lintMigrations(files);
+    expect(rules(r)).toContain("CASCADE-LOSS");
+  });
+});
