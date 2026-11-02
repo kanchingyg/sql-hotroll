@@ -63,7 +63,10 @@ export function staticRules(facts: FileFacts, before: Snapshot, mode: Mode): Fin
         );
       continue;
     }
-    if (fk.enforced) findings.push(...dropParentRules(facts, before, a.table, line, fk, laterDeferOff(facts, i), mode));
+    if (fk.enforced) {
+      const deferral = !fk.deferred ? "none" : laterDeferOff(facts, i) ? "on-off" : "on-only";
+      findings.push(...dropParentRules(facts, before, { table: a.table, line }, deferral, mode));
+    }
     if (!backedUp)
       findings.push(
         finding(
@@ -88,10 +91,8 @@ const laterDeferOff = (facts: FileFacts, i: number) =>
 function dropParentRules(
   facts: FileFacts,
   before: Snapshot,
-  parent: string,
-  line: number,
-  fk: FkState,
-  deferOffLater: boolean,
+  { table: parent, line }: { table: string; line: number },
+  deferral: Deferral,
   mode: Mode,
 ): Finding[] {
   const findings: Finding[] = [];
@@ -113,10 +114,11 @@ function dropParentRules(
       ),
     );
   }
-  if (blocking.length > 0 && !(fk.deferred && deferOffLater)) {
-    const advice = fk.deferred
-      ? `PRAGMA defer_foreign_keys = on alone does not help: SQLite counts the violations from the drop and fails the COMMIT even if the rebuild restores every key. Set it = off after the rebuild`
-      : `Put PRAGMA defer_foreign_keys = on before the drop and = off once the replacement table is in place`;
+  if (blocking.length > 0 && deferral !== "on-off") {
+    const advice =
+      deferral === "on-only"
+        ? `PRAGMA defer_foreign_keys = on alone does not help: SQLite counts the violations from the drop and fails the COMMIT even if the rebuild restores every key. Set it = off after the rebuild`
+        : `Put PRAGMA defer_foreign_keys = on before the drop and = off once the replacement table is in place`;
     findings.push(
       finding(
         "DROP-PARENT-NO-DEFER",
@@ -127,6 +129,12 @@ function dropParentRules(
   }
   return findings;
 }
+
+/**
+ * `defer_foreign_keys` around a drop: not on, on for the rest of the file (the COMMIT then fails
+ * on the violations the drop counted), or on and switched off later (the counters reset).
+ */
+type Deferral = "none" | "on-only" | "on-off";
 
 /** ON DELETE actions that change child rows when the parent's rows go. */
 const ACTING = new Set(["CASCADE", "SET NULL", "SET DEFAULT"]);

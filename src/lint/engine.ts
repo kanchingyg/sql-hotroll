@@ -61,8 +61,9 @@ async function seededAfter(earlier: MigrationFile[], opts: LintOptions): Promise
 async function lintOne(earlier: MigrationFile[], file: MigrationFile, opts: LintOptions): Promise<Finding[]> {
   const facts = factsOf(file.sql);
   const { db, before, seeded } = await seededAfter(earlier, opts);
-  const control = await seededAfter(earlier, opts);
+  let control: Seeded | undefined;
   try {
+    control = await seededAfter(earlier, opts);
     const findings = staticRules(facts, before, opts.mode);
     for (const [table, line] of tablesInScope(facts, before)) {
       const reason = seeded.get(table);
@@ -90,7 +91,7 @@ async function lintOne(earlier: MigrationFile[], file: MigrationFile, opts: Lint
     return sortByLine(findings);
   } finally {
     db.close();
-    control.db.close();
+    control?.db.close();
   }
 }
 

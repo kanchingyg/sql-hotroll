@@ -74,7 +74,7 @@ interface D1Binding {
 }
 
 /** D1 bindings from the top level and every `env.*` of the first wrangler config found. */
-export function readD1Bindings(root: string): D1Binding[] {
+function readD1Bindings(root: string): D1Binding[] {
   for (const name of ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]) {
     const file = join(root, name);
     if (!existsSync(file)) continue;
@@ -153,7 +153,7 @@ function load(full: string): MigrationFile {
 }
 
 /** Numeric order on the first segment's leading integer, then lexical (wrangler's rule). */
-export function compareMigrationPaths(a: string, b: string): number {
+function compareMigrationPaths(a: string, b: string): number {
   const lead = (p: string) => {
     const m = p.match(/^(\d+)/);
     return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
