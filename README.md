@@ -112,7 +112,7 @@ bun run build      # dist/bin.js for Node; also runs on npm pack
 
 ## AI assistance
 
-AI coding agents (Grok Bot and Cursor agents) wrote most of the code, tests, proof scripts, and documentation in this repository at the author's direction. The author chose the design, reviewed the output, and is responsible for it.
+AI coding agents wrote most of the code, tests, proof scripts, and documentation in this repository at the author's direction. The author chose the design, reviewed the output, and is responsible for it.
 
 ## License
 
