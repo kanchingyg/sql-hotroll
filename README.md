@@ -23,57 +23,65 @@
 
 ## Quickstart
 
-The CLI is not in a release yet; npm `sql-hotroll@0.1.7` and JSR `@kanchingyg/hotroll@0.1.7` contain the library only. Until the next release, run it from a clone (Bun, or Node 22.13+ after `bun run build`):
+The CLI is not in a release yet; npm `sql-hotroll@0.1.7` and JSR `@kanchingyg/hotroll@0.1.7` contain the library only. Until the next release, run it from a clone. `npm install` builds `dist/bin.js` through the `prepare` script, which needs [Bun](https://bun.sh) on the path; the built CLI runs on Node 22.13+ or Bun.
 
 ```bash
-git clone https://github.com/kanchingyg/sql-hotroll && cd sql-hotroll && bun install
-bun src/bin.ts lint path/to/migrations          # wrangler layout: migrations/*.sql
-bun src/bin.ts lint path/to/drizzle             # drizzle-kit: 0000_x.sql or <name>/migration.sql
+git clone https://github.com/kanchingyg/sql-hotroll && cd sql-hotroll && npm install
+npx . lint path/to/project                      # reads wrangler.toml/.jsonc, else path/to/project/migrations
+npx . lint path/to/drizzle                      # drizzle-kit: 0000_x.sql or <name>/migration.sql
+npx . lint path/to/migrations/0002_change.sql   # one file, after replaying the files before it
 ```
 
-After the release it becomes `npx sql-hotroll lint migrations` or `bunx sql-hotroll lint migrations`.
+`lint` with no path looks at the current directory. A wrangler config with several D1 bindings is linted once per `migrations_dir` / `migrations_pattern`. After the release this becomes `npx sql-hotroll lint`.
 
-In GitHub Actions, `--format github` turns findings into annotations on the pull request:
+In GitHub Actions, `--format github` turns findings into annotations on the pull request. The CLI needs `node:sqlite`, so pin Node 22.13 or later (not yet tried on a hosted runner):
 
 ```yaml
-- run: bunx sql-hotroll lint migrations --format github
+- uses: actions/setup-node@v4
+  with:
+    node-version: 22
+- run: npx sql-hotroll lint --format github
 ```
 
 Nothing connects to a database. D1 is simulated locally; there is no remote mode.
 
 ## What it checks
 
-For each migration file, in the order wrangler applies them: build the schema from the earlier files, seed every table with 3 rows that satisfy its foreign keys, apply the file, and compare.
+For each migration file, in the order wrangler applies them: build the schema from the earlier files, seed every table with 3 rows that satisfy its foreign keys, and apply the file one statement at a time. The file is applied twice to identical copies: once as D1 would (foreign keys on, one transaction), and once with foreign keys off. Rows present in the second run but missing from the first were removed by ON DELETE actions. Rows missing from both, beyond what the file's own DELETEs removed, were lost by the file itself.
 
 | Rule | Level | Meaning |
 |---|---|---|
 | CASCADE-LOSS | error | A table lost rows through ON DELETE CASCADE when its parent was dropped or rebuilt |
 | CASCADE-NULL | error | Foreign key values were set to NULL by ON DELETE SET NULL / SET DEFAULT |
-| ROW-LOSS | error | A table lost rows that no DELETE in the file targets (for example a rebuild that copies fewer rows) |
-| APPLY-FAIL | error | The file fails, and the report says whether it fails only once tables have rows |
+| ROW-LOSS | error | A table lost rows that no DELETE in the file removed (for example a rebuild that copies fewer rows) |
+| FK-ORPHAN | error | After the file, rows point at parent rows or a parent table that no longer exist (`PRAGMA foreign_key_check`) |
+| APPLY-FAIL | error | A statement fails, at its line, and the report says whether it fails only once tables have rows |
 | UNSEEDED | warning | A table the file touches could not be seeded (CHECK, virtual table, FK cycle), so loss there was not checked. Never reported as OK. |
-| FK-PRAGMA-NOOP | warning | `PRAGMA foreign_keys = OFF` inside a D1 migration does nothing |
-| DROP-PARENT-NO-DEFER | warning | Drops a table other tables reference, without `PRAGMA defer_foreign_keys = on` first |
+| FK-PRAGMA-NOOP | warning | `PRAGMA foreign_keys = OFF` inside a transaction (every D1 migration) does nothing |
+| DROP-PARENT-CASCADE | warning | Drops a table whose children have ON DELETE CASCADE / SET NULL / SET DEFAULT and are not backed up first |
+| DROP-PARENT-NO-DEFER | warning | Drops a table that NO ACTION / RESTRICT children reference, without `defer_foreign_keys` on before and off after |
 | DROP-NO-BACKUP | warning | Drops a table or column whose data no earlier statement copies |
 | TYPE-CHANGE | warning | A rebuild changes a column's declared type; existing values are not converted |
 | TRIGGER-LOST | warning | A rebuild drops a table's triggers and does not recreate them |
 
-Options: `--mode d1|sqlite`, `--format text|json|github` (`--json` for short), `--rows <n>`, `--strict` (exit 1 on warnings too). Exit codes: 0 clean, 1 findings at error level, 2 usage error.
+Options: `--mode d1|sqlite`, `--format text|json|github` (`--json` for short), `--rows <n>`, `--strict` (exit 1 on warnings too). Exit codes: 0 clean, 1 findings at error level, 2 usage error (including a path that does not exist).
 
 ### Why `PRAGMA foreign_keys = OFF` does not help on D1
 
 - `wrangler d1 migrations apply` sends each file as one batch, and the batch runs in one transaction. Sources: [`buildMigrationQuery`](https://github.com/cloudflare/workers-sdk/blob/34f34b3dbf9ae70218115a4067f66565d184ed5e/packages/wrangler/src/d1/migrations/helpers.ts) and Miniflare's [`#txn`](https://github.com/cloudflare/workers-sdk/blob/34f34b3dbf9ae70218115a4067f66565d184ed5e/packages/miniflare/src/workers/d1/database.worker.ts).
 - D1 runs every query in an implicit transaction, and user queries cannot change `PRAGMA foreign_keys` ([D1 docs: foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/)).
 - SQLite ignores `PRAGMA foreign_keys` inside a transaction ([pragma docs](https://www.sqlite.org/pragma.html#pragma_foreign_keys)).
-- `PRAGMA defer_foreign_keys = on`, which D1 recommends, only delays the constraint check. ON DELETE CASCADE still runs.
+- `PRAGMA defer_foreign_keys = on`, which D1 recommends, only delays the constraint check. ON DELETE CASCADE and SET NULL still run.
+- For NO ACTION / RESTRICT children, `defer_foreign_keys = on` alone still fails at COMMIT, even when the rebuild restores every key. The file has to set it `off` again before the end, and setting it off discards the pending violations ([SQLite `pragma.c`](https://github.com/sqlite/sqlite/blob/master/src/pragma.c) resets the deferred-constraint counters). A file that drops a parent without replacing it then commits with orphaned rows, so run `PRAGMA foreign_key_check` after migrating. The D1 docs say setting it off with violations pending fails; `wrangler --local` committed. Remote D1 is not tested here.
 
-I checked the last point with `wrangler 4.156.2 d1 migrations apply --local` on the `test/fixtures/workers-sdk-5438` files: every row of table `b` was deleted with either pragma. The fixtures reproduce [workers-sdk#5438](https://github.com/cloudflare/workers-sdk/issues/5438), [atlas#3317](https://github.com/ariga/atlas/issues/3317), and a drizzle-kit 0.31.11 table rebuild ([drizzle-orm#4938](https://github.com/drizzle-team/drizzle-orm/issues/4938)).
+I checked the CASCADE point with `wrangler 4.156.2 d1 migrations apply --local` on the `test/fixtures/workers-sdk-5438` files: every row of table `b` was deleted with either pragma. The fixtures reproduce [workers-sdk#5438](https://github.com/cloudflare/workers-sdk/issues/5438), [atlas#3317](https://github.com/ariga/atlas/issues/3317), and a drizzle-kit 0.31.11 table rebuild ([drizzle-orm#4938](https://github.com/drizzle-team/drizzle-orm/issues/4938)).
 
 ### Limits
 
 - Seeded rows are synthetic. A migration whose effect depends on real values (a `WHERE` on a status column, say) can pass here and still lose data.
 - Statement shapes (DROP TABLE, copies, renames) are read with patterns, not a full SQL parser. Row counts come from SQLite itself.
-- The local SQLite version (Bun 3.53, Node 22: 3.50) differs from D1's. Features D1 rejects are not flagged.
+- The local SQLite version (3.53 under Bun, 3.50 under Node 22.20) differs from D1's. Features D1 rejects are not flagged.
+- The file is replayed for every later file, so time grows with the square of the number of files (about 0.6 s for 100 small files, 4.7 s for 300).
 
 ## Expand/contract on a live SQLite file
 
@@ -86,7 +94,11 @@ sql-hotroll backfill --db app.sqlite --table users
 sql-hotroll contract --db app.sqlite --table users            # once no session uses users_v1
 ```
 
-For D1 this works only on the local file under `.wrangler/state`. Updates through the old view recompute the new columns, which is correct only when `up(down(x)) = x`; upserts do not work on views.
+`adopt` takes `--schema-version <n>` to start from a version other than 1. For D1 this works only on the local file under `.wrangler/state`. Updates through the old view recompute the new columns, which is correct only when `up(down(x)) = x`; upserts do not work on views.
+
+## Library
+
+`import { lintMigrations } from "sql-hotroll/lint"` and the other library entry points (`sql-hotroll`, `/expand`, the adapters) are TypeScript sources. They load in Bun and Deno; Node refuses to strip types inside `node_modules`, so from Node use the CLI.
 
 ## Research
 

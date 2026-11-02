@@ -1,0 +1,66 @@
+<!-- Draft README for the main branch. Not applied to main; review before use. -->
+
+# sql-hotroll
+
+[![ci](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml/badge.svg)](https://github.com/kanchingyg/sql-hotroll/actions/workflows/ci.yml)
+[![JSR](https://jsr.io/badges/@kanchingyg/hotroll)](https://jsr.io/@kanchingyg/hotroll)
+[![license](https://img.shields.io/github/license/kanchingyg/sql-hotroll)](LICENSE)
+
+A TypeScript library for changing a SQLite, Cloudflare D1, or PostgreSQL table while two versions of an application use it. Old and new columns are kept in sync by triggers generated from a lens (a pair of functions that map a row between versions), and each client moves to the new version only when it has no request in flight.
+
+**Author:** Augusto Cerrutti Satto ([ORCID 0009-0005-7279-8319](https://orcid.org/0009-0005-7279-8319), augustocerruttisatto@gmail.com)
+
+## Status
+
+Research code, version 0.1.7. The API can change between minor versions. A command-line migration linter is in development on the `feat/cli-lint` branch and is not in this release.
+
+## Install
+
+```bash
+npm install sql-hotroll          # npm
+bunx jsr add @kanchingyg/hotroll # JSR
+deno add jsr:@kanchingyg/hotroll
+```
+
+The package ships TypeScript sources. It loads in Bun, Deno, and Cloudflare Workers (through wrangler's bundler). Node does not strip types inside `node_modules`, so plain Node needs a bundler.
+
+## Modules
+
+| Import | Contents |
+|---|---|
+| `sql-hotroll/lenses` | Split/merge and rename lenses, and composition of lenses |
+| `sql-hotroll/d1-adapter` | Trigger SQL for D1 and SQLite, batched backfill, introspection of generated columns |
+| `sql-hotroll/postgres-adapter` | Trigger SQL for PostgreSQL and a check for DDL that takes heavy locks |
+| `sql-hotroll/ast-rewriter` | Sorts a DDL change into tiers (generated column, view, copy) and rewrites table names per version |
+| `sql-hotroll/client-quiescence` | Tracks in-flight requests per client and reports when a client can switch version |
+| `sql-hotroll/core` | Version tokens and signed envelopes that carry a client's schema version |
+| `sql-hotroll/attestation`, `/hardware-auth` | Signed migration approvals (in-toto / DSSE, Ed25519) and an OpenSSH `SSHSIG` verifier |
+| `sql-hotroll/tui` | A terminal view of a running migration |
+
+Only the adapters touch a database. Nothing here runs a migration for you; the calling code decides when to apply each step.
+
+## Limits
+
+- A lens works when the change can be undone row by row (`up(down(x)) = x`). Aggregations, one-way hashes, and changes with side effects outside the table need a multi-step expand/contract instead.
+- D1 runs each migration file in one transaction, where `PRAGMA foreign_keys = OFF` has no effect. Rebuilding a table that other tables reference with ON DELETE CASCADE deletes their rows ([workers-sdk#5438](https://github.com/cloudflare/workers-sdk/issues/5438)).
+- Measurements in the paper come from local SQLite, D1 through `wrangler --local`, and PostgreSQL 17 on one machine. They are not production numbers.
+
+## Paper and data
+
+`SQ-HotRoll-Paper-01.pdf` describes the design and the measurements. Raw results are in `results/`, the benchmark harness in `harness/`, and the proof scripts in `proofs/`. Cite through [`CITATION.cff`](CITATION.cff).
+
+## Development
+
+```bash
+bun install
+bun test
+bunx tsc --noEmit
+```
+
+## AI assistance
+
+AI coding agents wrote most of the code under my direction.
+
+## License
+
+MIT
