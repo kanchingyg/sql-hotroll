@@ -7,3 +7,8 @@ dist/
 coverage/
 .env
 .dev.vars
+.wrangler/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db

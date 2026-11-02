@@ -1,9 +1,9 @@
 {
   "name": "sql-hotroll",
   "version": "0.1.7",
-  "description": "Session-quiescence-gated progressive SQL schema evolution with bijective inline complement lenses, zero-trust SLSA v1.0 DSSE hardware quorum, and DEC Mode 2026 TUI for Cloudflare D1, SQLite, and PostgreSQL 17.",
+  "description": "Find data loss in SQLite and Cloudflare D1 migrations before they run, plus expand/contract and session-quiescence schema evolution.",
   "license": "MIT",
-  "author": "Augusto Cerrutti <augustocerruttisatto@gmail.com>",
+  "author": "Augusto Cerrutti Satto <augustocerruttisatto@gmail.com>",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -20,10 +20,13 @@
     "./hardware-auth": "./src/hardware-auth.ts",
     "./tui": "./src/tui.ts",
     "./cdn-range-gate": "./src/cdn-range-gate.ts",
-    "./polyglot-sql": "./src/polyglot-sql.ts"
+    "./polyglot-sql": "./src/polyglot-sql.ts",
+    "./lint": "./src/lint/index.ts",
+    "./expand": "./src/expand/sqlite.ts"
   },
   "files": [
     "src",
+    "dist",
     "README.md",
     "CREDITS.md",
     "CITATION.cff",
@@ -32,6 +35,11 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check",
+    "format": "biome check --write",
+    "check": "bun run lint && bun run typecheck && bun test",
+    "build": "bun build src/bin.ts --target node --external bun:sqlite --outfile dist/bin.js",
+    "prepack": "bun run build",
     "verify:physics": "bun run testbeds/run-all.ts"
   },
   "repository": {
@@ -48,10 +56,20 @@
     "zero-downtime",
     "slsa",
     "fido2",
-    "tui"
+    "tui",
+    "drizzle",
+    "migrations",
+    "lint"
   ],
   "devDependencies": {
+    "@biomejs/biome": "2.6.4",
     "@types/bun": "^1.2.4",
-    "typescript": "^5.7.3"
+    "typescript": "^7.0.2"
+  },
+  "bin": {
+    "sql-hotroll": "dist/bin.js"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }
