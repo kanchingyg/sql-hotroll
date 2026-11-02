@@ -78,16 +78,12 @@ export function lossRules(
     }
   }
   const parentHit = (parent: string) => removedAt(facts, parent) !== undefined || byAction.has(parent);
-  const causeOf = (table: string, action: string) => {
-    const fks = before.tables.get(table)?.foreignKeys ?? [];
-    return (
-      fks.find((fk) => fk.onDelete === action && fk.parent !== table && parentHit(fk.parent)) ??
-      fks.find((fk) => fk.onDelete === action)
-    );
-  };
   const deletedOnly = deletedOnlyTables(facts, before, byAction);
   for (const [table, missing] of byAction) {
-    const cause = causeOf(table, "CASCADE");
+    const fks = before.tables.get(table)?.foreignKeys ?? [];
+    const cause =
+      fks.find((fk) => fk.onDelete === "CASCADE" && fk.parent !== table && parentHit(fk.parent)) ??
+      fks.find((fk) => fk.onDelete === "CASCADE");
     const parent = cause ? `"${cause.parent}"` : "a parent table";
     const line = (cause && removedAt(facts, cause.parent)) ?? 1;
     const of = `${missing} of ${counts.rows.get(table)} rows`;

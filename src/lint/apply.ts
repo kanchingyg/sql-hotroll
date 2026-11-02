@@ -60,8 +60,7 @@ export function applySteps(db: SqlDb, steps: Step[], mode: Mode): Applied {
  * SQLite compiles only the first statement of what it is given. If the splitter handed it more
  * than one, the rest would silently never run, so anything but comments after it is an error.
  */
-function unparsedTail(sql: string, compiled: string | undefined): string | null {
-  if (compiled === undefined) throw new Error("the lint driver must report sourceSQL (node:sqlite)");
+function unparsedTail(sql: string, compiled: string): string | null {
   if (!sql.startsWith(compiled)) return sql;
   const rest = sql
     .slice(compiled.length)

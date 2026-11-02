@@ -139,15 +139,16 @@ function tablesInScope(facts: FileFacts, before: Snapshot): Map<string, number> 
  * Of the findings left about one child at one line, only the most severe are kept.
  */
 function merge(findings: Finding[], measured: Set<string>): Finding[] {
-  const applyFail = findings.find((f) => f.rule === "APPLY-FAIL");
-  const kept = findings.filter((f) => {
-    if (f.rule === "DROP-PARENT-CASCADE" && f.table !== undefined && measured.has(f.table)) return false;
-    if (f.rule === "DROP-PARENT-NO-DEFER" && applyFail?.line === f.line) {
-      applyFail.message += ` Cause: ${f.message}`;
-      return false;
-    }
-    return true;
-  });
+  const failLine = findings.find((f) => f.rule === "APPLY-FAIL")?.line;
+  const causes = findings.filter((f) => f.rule === "DROP-PARENT-NO-DEFER" && f.line === failLine);
+  const kept = findings
+    .filter((f) => !causes.includes(f))
+    .filter((f) => !(f.rule === "DROP-PARENT-CASCADE" && f.table !== undefined && measured.has(f.table)))
+    .map((f) =>
+      f.rule === "APPLY-FAIL" && causes.length > 0
+        ? { ...f, message: [f.message, ...causes.map((c) => `Cause: ${c.message}`)].join(" ") }
+        : f,
+    );
   const worst = new Map<string, number>();
   const key = (f: Finding) => (f.table === undefined ? null : `${f.line}\0${f.table}`);
   const rank = (f: Finding) => (f.severity === "error" ? 1 : 0);
