@@ -1,0 +1,7 @@
+INSERT INTO p (id, note) VALUES (100, 'DROP TABLE p; -- not real');
+/* ; DROP TABLE p; */
+DELETE FROM c WHERE 0;
+CREATE TABLE p_new (id INTEGER PRIMARY KEY, note TEXT);
+INSERT INTO p_new SELECT * FROM p;
+DROP TABLE p;
+ALTER TABLE p_new RENAME TO p;

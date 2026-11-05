@@ -36,7 +36,42 @@ jobs:
           bun-version: latest
       - name: Install
         run: bun install --frozen-lockfile || bun install
+      - name: Lint
+        run: bun run lint
       - name: Typecheck
-        run: bunx tsc --noEmit
+        run: bun run typecheck
       - name: Test
         run: bun test
+      - name: JSR dry run
+        run: npx -y jsr publish --dry-run --allow-dirty
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install and build
+        run: npm install
+      - name: Run the CLI from the clone
+        run: |
+          set +e
+          npx . lint test/fixtures/workers-sdk-5438
+          code=$?
+          set -e
+          test "$code" -eq 1
+          npx . lint test/fixtures/drizzle-clean
+      - name: Pack and import every export from Node
+        run: |
+          set -euo pipefail
+          TARBALL="$PWD/$(npm pack --silent)"
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y >/dev/null
+          npm install "$TARBALL"
+          node -e '
+            const pkg = require("./node_modules/sql-hotroll/package.json");
+            const names = Object.keys(pkg.exports).filter((k) => k !== "./package.json").map((k) => "sql-hotroll" + k.slice(1));
+            Promise.all(names.map((n) => import(n))).then(() => console.log("imported", names.length));
+          '
+          npx sql-hotroll --version

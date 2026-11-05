@@ -1,22 +1,34 @@
 cff-version: 1.2.0
-message: "If you use SQ-HotRoll or its formal verification and benchmark artifacts, please cite this work."
-title: "Session-Quiescence-Gated Progressive Schema Evolution with Inline Complement Lenses for Stateful Edge and Relational Databases"
+message: "If you use this software, please cite the paper below (preferred-citation); to cite the code itself, use the software DOI."
+title: "sql-hotroll"
+abstract: "Finds data loss in SQLite and Cloudflare D1 migrations before they run, plus expand/contract and session-quiescence schema evolution (research code for the SQ-HotRoll paper)."
 type: software
 authors:
-  - family-names: "Cerrutti"
+  - family-names: "Cerrutti Satto"
     given-names: "Augusto"
+    email: "augustocerruttisatto@gmail.com"
     affiliation: "Independent Systems Researcher"
     orcid: "https://orcid.org/0009-0005-7279-8319"
-doi: "10.5281/zenodo.23675281"
-version: "1.0.0"
-date-released: "2026-10-26"
+doi: "10.5281/zenodo.23675682"
+version: "0.2.0"
 license: "MIT"
+repository-code: "https://github.com/kanchingyg/sql-hotroll"
 keywords:
+  - "Cloudflare D1"
+  - "SQLite"
+  - "migrations"
+  - "lint"
   - "online schema evolution"
   - "bidirectional lenses"
-  - "Cloudflare D1"
-  - "PostgreSQL"
-  - "session quiescence"
-  - "formal verification"
-  - "Z3 SMT"
-  - "Spin model checking"
+preferred-citation:
+  type: article
+  title: "SQ-HotRoll: Session-Quiescence-Gated Progressive Schema Evolution with Inline Complement Lenses for Stateful Edge and Relational Databases"
+  authors:
+    - family-names: "Cerrutti Satto"
+      given-names: "Augusto"
+      orcid: "https://orcid.org/0009-0005-7279-8319"
+  doi: "10.5281/zenodo.23675280"
+  year: 2026
+  publisher:
+    name: "Zenodo"
+  notes: "Preprint. Concept DOI; resolves to the latest version (v2, 10.5281/zenodo.23682048)."

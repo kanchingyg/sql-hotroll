@@ -1,29 +1,77 @@
 {
   "name": "sql-hotroll",
-  "version": "0.1.7",
-  "description": "Session-quiescence-gated progressive SQL schema evolution with bijective inline complement lenses, zero-trust SLSA v1.0 DSSE hardware quorum, and DEC Mode 2026 TUI for Cloudflare D1, SQLite, and PostgreSQL 17.",
+  "version": "0.2.0",
+  "description": "Find data loss in SQLite and Cloudflare D1 migrations before they run, plus expand/contract and session-quiescence schema evolution.",
   "license": "MIT",
-  "author": "Augusto Cerrutti <augustocerruttisatto@gmail.com>",
+  "author": "Augusto Cerrutti Satto <augustocerruttisatto@gmail.com>",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./core": "./src/core.ts",
-    "./lenses": "./src/lenses.ts",
-    "./ast-rewriter": "./src/ast-rewriter.ts",
-    "./d1-adapter": "./src/d1-adapter.ts",
-    "./postgres-adapter": "./src/postgres-adapter.ts",
-    "./client-quiescence": "./src/client-quiescence.ts",
-    "./attestation": "./src/attestation.ts",
-    "./crypto-handshake": "./src/crypto-handshake.ts",
-    "./hardware-auth": "./src/hardware-auth.ts",
-    "./tui": "./src/tui.ts",
-    "./cdn-range-gate": "./src/cdn-range-gate.ts",
-    "./polyglot-sql": "./src/polyglot-sql.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    },
+    "./lenses": {
+      "types": "./dist/lenses.d.ts",
+      "default": "./dist/lenses.js"
+    },
+    "./ast-rewriter": {
+      "types": "./dist/ast-rewriter.d.ts",
+      "default": "./dist/ast-rewriter.js"
+    },
+    "./d1-adapter": {
+      "types": "./dist/d1-adapter.d.ts",
+      "default": "./dist/d1-adapter.js"
+    },
+    "./postgres-adapter": {
+      "types": "./dist/postgres-adapter.d.ts",
+      "default": "./dist/postgres-adapter.js"
+    },
+    "./client-quiescence": {
+      "types": "./dist/client-quiescence.d.ts",
+      "default": "./dist/client-quiescence.js"
+    },
+    "./attestation": {
+      "types": "./dist/attestation.d.ts",
+      "default": "./dist/attestation.js"
+    },
+    "./crypto-handshake": {
+      "types": "./dist/crypto-handshake.d.ts",
+      "default": "./dist/crypto-handshake.js"
+    },
+    "./hardware-auth": {
+      "types": "./dist/hardware-auth.d.ts",
+      "default": "./dist/hardware-auth.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "default": "./dist/tui.js"
+    },
+    "./cdn-range-gate": {
+      "types": "./dist/cdn-range-gate.d.ts",
+      "default": "./dist/cdn-range-gate.js"
+    },
+    "./polyglot-sql": {
+      "types": "./dist/polyglot-sql.d.ts",
+      "default": "./dist/polyglot-sql.js"
+    },
+    "./lint": {
+      "types": "./dist/lint/index.d.ts",
+      "default": "./dist/lint/index.js"
+    },
+    "./expand": {
+      "types": "./dist/expand/sqlite.d.ts",
+      "default": "./dist/expand/sqlite.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "src",
+    "dist",
     "README.md",
     "CREDITS.md",
     "CITATION.cff",
@@ -32,7 +80,14 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "verify:physics": "bun run testbeds/run-all.ts"
+    "lint": "biome check",
+    "format": "biome check --write",
+    "check": "bun run lint && bun run typecheck && bun test",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/bin.js',0o755)\"",
+    "prepack": "npm run build",
+    "verify:physics": "bun run testbeds/run-all.ts",
+    "prepare": "npm run build",
+    "check:jsr": "npx -y jsr publish --dry-run --allow-dirty"
   },
   "repository": {
     "type": "git",
@@ -48,10 +103,20 @@
     "zero-downtime",
     "slsa",
     "fido2",
-    "tui"
+    "tui",
+    "drizzle",
+    "migrations",
+    "lint"
   ],
   "devDependencies": {
+    "@biomejs/biome": "2.6.4",
     "@types/bun": "^1.2.4",
-    "typescript": "^5.7.3"
+    "typescript": "^7.0.2"
+  },
+  "bin": {
+    "sql-hotroll": "dist/bin.js"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }
